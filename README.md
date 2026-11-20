@@ -4,7 +4,7 @@ Agent Todo 是一个 macOS 菜单栏应用。它从 CLI 助手的回复中识别
 
 ## 安装
 
-1. 从 [GitHub Releases](https://github.com/gaomind/agent-todo/releases) 下载 `agent-todo-0.0.2-macOS.dmg`。需要 macOS 13 或更新版本，支持 Apple 芯片与 Intel Mac。
+1. 从 [GitHub Releases](https://github.com/gaomind/agent-todo/releases) 下载 `agent-todo-0.0.2-macOS-Finder.zip`，在 Finder 里双击解压，解出的 DMG 会显示 Agent Todo 图标。也可以直接下载 `agent-todo-0.0.2-macOS.dmg`，其文件使用系统磁盘映像图标，打开后挂载的卷会显示 Agent Todo 图标。需要 macOS 13 或更新版本，支持 Apple 芯片与 Intel Mac。
 2. 打开 DMG，把「Agent Todo」拖到「应用程序」，再从那里启动。
 3. 应用使用临时签名（ad hoc），未经 Apple 公证。如果 macOS 拦截首次启动，确认 DMG 来自本仓库的 Release 后，可在「系统设置」→「隐私与安全性」中选择「仍要打开」。
 
@@ -46,4 +46,4 @@ scripts/build-app.sh
 scripts/build-dmg.sh
 ```
 
-应用和 DMG 默认写入 `dist/`。
+应用、DMG 和保留 DMG 自定义图标的 Finder ZIP 默认写入 `dist/`。
