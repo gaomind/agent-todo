@@ -11,7 +11,7 @@ struct ProviderProbeCommand {
         environment: [String: String], codexHome: URL, configuration: URL? = nil
     ) throws -> Self {
         var environment = ProviderCLI.launchEnvironment(for: cli, environment: environment)
-        let session = provider == .codex ? nil : UUID()
+        let session = provider == .codex || provider == .antigravity ? nil : UUID()
         let sessionArgument = session?.uuidString.lowercased() ?? ""
         let arguments: [String]
         switch provider {
@@ -56,25 +56,19 @@ struct ProviderProbeCommand {
                 "--tools", "read_file", "--disallowed-tools", "read_file,search_tool,use_tool",
                 "--single", prompt,
             ]
-        case .gemini:
+        case .antigravity:
             if let configuration {
-                // The connection retains the logical .gemini directory even when it is a symlink.
-                environment["GEMINI_CLI_HOME"] = configuration.deletingLastPathComponent().deletingLastPathComponent().path
+                environment["HOME"] = configuration.deletingLastPathComponent()
+                    .deletingLastPathComponent().deletingLastPathComponent().path
             }
-            let policy = workspace.appendingPathComponent("agent-hold-policy.toml")
-            try Data("""
-                [[rule]]
-                toolName = "*"
-                decision = "deny"
-                priority = 999
-                """.utf8).write(to: policy, options: .withoutOverwriting)
+            // Antigravity defaults to auto mode for some accounts. Pin per-run
+            // permissions and prevent configured allow rules from enabling tools.
+            let settings = #"{"agentMode":"","toolPermission":"strict","permissions":{"deny":["read_file(*)","write_file(*)","read_url(*)","execute_url(*)","command(*)","mcp(*)"]}}"#
             arguments = [
-                "--skip-trust", "--session-id", sessionArgument, "--output-format", "stream-json",
-                "--approval-mode", "plan", "--policy", policy.path,
-                "--extensions", "none", "--allowed-mcp-server-names", "agent-hold-probe-\(sessionArgument)",
-                "--prompt", prompt,
+                "--settings", settings, "--sandbox", "--disable-slash-commands",
+                "--output-format", "stream-json", "--print", prompt,
             ]
-        case .unknown:
+        case .gemini, .unknown:
             throw CocoaError(.featureUnsupported)
         }
 
@@ -82,11 +76,15 @@ struct ProviderProbeCommand {
     }
 
     func sessionID(inOutputLine line: Data) -> UUID? {
+        if provider == .antigravity {
+            guard let event = object(in: line), event["event"] as? String == "init" else { return nil }
+            return (event["conversation_id"] as? String).flatMap(UUID.init(uuidString:))
+        }
         guard let object = object(in: line), let type = object["type"] as? String else { return nil }
         let key: String
         switch (provider, type) {
         case (.codex, "thread.started"): key = "thread_id"
-        case (.claude, "result"), (.gemini, "init"): key = "session_id"
+        case (.claude, "result"): key = "session_id"
         case (.claude, "system") where object["subtype"] as? String == "init": key = "session_id"
         default: return nil
         }
@@ -104,7 +102,15 @@ struct ProviderProbeCommand {
 
     func isAuthenticationError(_ data: Data, isOutput: Bool) -> Bool {
         if isOutput {
-            guard let event = object(in: data), let type = event["type"] as? String else { return false }
+            guard let event = object(in: data) else { return false }
+            if provider == .antigravity {
+                guard event["event"] as? String == "result",
+                      let result = event["result"] as? [String: Any],
+                      result["status"] as? String == "ERROR",
+                      let error = result["error"] as? String else { return false }
+                return isAuthenticationError(Data(error.utf8), isOutput: false)
+            }
+            guard let type = event["type"] as? String else { return false }
             let failed = type == "error" || type == "turn.failed" || event["is_error"] as? Bool == true
                 || (type == "result" && event["status"] as? String == "error")
             guard failed else { return false }
@@ -117,10 +123,18 @@ struct ProviderProbeCommand {
         case .codex: additional = ["codex login"]
         case .claude: additional = ["please run /login", "invalid api key", "authentication_error", "oauth token has expired"]
         case .grok: additional = ["grok login", "no authentication credentials", "no credentials found", "invalid api key"]
-        case .gemini: additional = ["please set an auth method", "gemini_api_key", "unauthenticated", "invalid api key", "login required"]
-        case .unknown: additional = []
+        case .antigravity: additional = ["sign in", "gemini_api_key is not set", "unauthenticated", "api key not valid"]
+        case .gemini, .unknown: additional = []
         }
         return (common + additional).contains(where: message.contains)
+    }
+
+    func completedAntigravityReply(in line: Data) -> (session: UUID, response: String)? {
+        guard provider == .antigravity, let event = object(in: line), event["event"] as? String == "result",
+              let result = event["result"] as? [String: Any], result["status"] as? String == "SUCCESS",
+              let id = result["conversation_id"] as? String, let session = UUID(uuidString: id),
+              let response = result["response"] as? String else { return nil }
+        return (session, response.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func object(in data: Data) -> [String: Any]? {

@@ -44,7 +44,7 @@ final class CodexLiveProbe: ObservableObject {
     }
 
     func start(provider: HoldProvider, cli: URL, configuration: URL? = nil) {
-        guard task == nil, provider != .unknown else { return }
+        guard task == nil, provider != .gemini, provider != .unknown else { return }
         activeProvider = provider
         states[provider] = .running
         task = Task {
@@ -193,12 +193,16 @@ final class CodexLiveProbe: ObservableObject {
                 throw attempt.authenticationFailure ? Failure.authentication : Failure.cliExit
             }
             guard let session = attempt.session, !attempt.conflictingSession else { throw Failure.thread }
+            if provider == .antigravity {
+                guard let result = attempt.antigravityResult, result.session == session else { throw Failure.thread }
+                guard result.response.contains(condition) else { throw Failure.unexpectedReply }
+            }
 
             let receiptDeadline = min(deadline, clock.now + receiptTimeout)
             repeat {
                 try Task.checkCancellation()
                 if let valid = attempt.receipts[session] {
-                    guard valid else { throw Failure.unexpectedReply }
+                    guard valid, attempt.matchesAntigravityResult(for: session) else { throw Failure.unexpectedReply }
                     return
                 }
                 try await Task.sleep(for: .milliseconds(40))
@@ -253,6 +257,8 @@ final class CodexLiveProbe: ObservableObject {
         private(set) var session: UUID?
         private(set) var conflictingSession = false
         private(set) var receipts: [UUID: Bool] = [:]
+        private var receiptText: [UUID: String] = [:]
+        private(set) var antigravityResult: (session: UUID, response: String)?
 
         private var finalOutput: Data?
         private var partialLine = Data()
@@ -274,6 +280,14 @@ final class CodexLiveProbe: ObservableObject {
             guard let id = UUID(uuidString: reply.sessionID),
                   receipts.count < 8 || receipts[id] != nil || id == session else { return }
             receipts[id] = valid || receipts[id] == true
+            if provider == .antigravity, valid {
+                receiptText[id] = reply.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        func matchesAntigravityResult(for id: UUID) -> Bool {
+            guard provider == .antigravity else { return true }
+            return receiptText[id] == antigravityResult?.response
         }
 
         func readOutput(_ bytes: ArraySlice<UInt8>) {
@@ -319,6 +333,10 @@ final class CodexLiveProbe: ObservableObject {
         private func parseLine() {
             recordSession(command.sessionID(inOutputLine: partialLine))
             if command.isAuthenticationError(partialLine, isOutput: true) { authenticationFailure = true }
+            if let result = command.completedAntigravityReply(in: partialLine) {
+                if antigravityResult != nil { conflictingSession = true }
+                antigravityResult = result
+            }
         }
 
         private func recordSession(_ observed: UUID?) {
@@ -338,21 +356,21 @@ final class CodexLiveProbe: ObservableObject {
         let failure: Failure
 
         var errorDescription: String? {
-            let event = provider == .gemini ? "AfterAgent" : "Stop"
-            let cli = provider.name + (provider == .gemini ? "" : " CLI")
+            let cli = provider.name
             switch failure {
-            case .cliMissing: return "找不到可执行的 \(cli)。请安装后重试。"
-            case .workspace: return "无法创建本地测试目录。"
-            case .launch: return "无法启动 \(cli)。"
-            case .timeout: return "等待 \(cli) 完成回复超时。"
+            case .cliMissing: return "找不到 \(cli)。请安装后重试。"
+            case .workspace: return "无法创建测试文件。请检查磁盘空间和权限后重试。"
+            case .launch: return "无法启动 \(cli)。请先确认它能在终端打开。"
+            case .timeout: return "等待回复超时。请检查网络后重试。"
             case .authentication:
-                if provider == .codex { return "Codex CLI 未登录或登录已失效。请运行 codex login 后重试。" }
-                return "\(cli) 认证失败。请在终端完成该来源的登录后重试。"
-            case .cliExit: return "\(cli) 提前退出。请检查 CLI 版本、登录及网络连接后重试。"
-            case .thread, .output: return "未能确认 \(cli) 返回的测试会话。"
-            case .wrongThread: return "收到的 \(event) 回执与本次测试会话不匹配。"
-            case .unexpectedReply: return "收到了本次 \(event) 回执，但回复里缺少预期的测试恢复条件。"
-            case .noReceipt: return "\(provider.name) 已结束，但未收到本次 \(event) 回执。请重新检查配置并确认 Hook 已受信任。"
+                if provider == .codex { return "请在终端运行 codex login 登录后重试。" }
+                if provider == .antigravity { return "请在终端运行 agy 完成登录后重试。" }
+                return "请在终端登录 \(cli) 后重试。"
+            case .cliExit: return "请先在终端确认 \(cli) 能正常回复，再重试。"
+            case .thread, .output: return "无法确认本次测试。请更新 \(cli) 后重试。"
+            case .wrongThread: return "收到的回复与本次测试不匹配。请重试。"
+            case .unexpectedReply: return "回复缺少预期内容。请重试。"
+            case .noReceipt: return "未收到测试回复。请在第 1 步重新检查是否允许读取回复。"
             }
         }
     }

@@ -1,5 +1,5 @@
 public enum HoldProvider: String, Codable, Sendable {
-    case codex, claude, grok, gemini, unknown
+    case codex, claude, grok, gemini, antigravity, unknown
 
     public init(from decoder: any Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)
@@ -12,6 +12,7 @@ public enum HoldProvider: String, Codable, Sendable {
         case .claude: "Claude Code"
         case .grok: "Grok"
         case .gemini: "Gemini CLI"
+        case .antigravity: "Antigravity CLI"
         case .unknown: "未知来源"
         }
     }
@@ -22,6 +23,7 @@ public enum HoldProvider: String, Codable, Sendable {
         case .claude: "✳ Claude Code"
         case .grok: "◉ Grok"
         case .gemini: "✦ Gemini CLI"
+        case .antigravity: "✧ Antigravity CLI"
         case .unknown: "◇ 未知来源"
         }
     }

@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 struct ProviderLiveProbeTests {
-    @Test(arguments: [HoldProvider.codex, .claude, .grok, .gemini])
+    @Test(arguments: [HoldProvider.codex, .claude, .grok, .antigravity])
     func succeedsOnlyWithAnIsolatedReceiptAndPreservesOtherStates(provider: HoldProvider) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -57,7 +57,7 @@ struct ProviderLiveProbeTests {
         #expect(!FileManager.default.fileExists(atPath: retryWorkspace.path))
     }
 
-    @Test(arguments: [HoldProvider.claude, .grok, .gemini])
+    @Test(arguments: [HoldProvider.claude, .grok, .antigravity])
     func aConflictingCLIReportedSessionCannotPass(provider: HoldProvider) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -130,16 +130,25 @@ struct ProviderLiveProbeTests {
             let sessionKey = provider == .codex ? "thread_id" : "session_id"
             let event = switch provider {
             case .codex: "thread.started"
-            case .gemini: "init"
             default: "result"
             }
             let reported = contradictorySession?.uuidString ?? "$session"
-            let output = provider == .grok
-                ? "printf '{\\n  \"stopReason\": \"end_turn\",\\n  \"sessionId\": \"%s\"\\n}' \"\(reported)\""
-                : "printf '%s' \"{\\\"type\\\":\\\"\(event)\\\",\\\"\(sessionKey)\\\":\\\"\(reported)\\\"}\""
+            let output: String
+            switch provider {
+            case .grok:
+                output = "printf '{\\n  \"stopReason\": \"end_turn\",\\n  \"sessionId\": \"%s\"\\n}' \"\(reported)\""
+            case .antigravity:
+                output = """
+                token="${PWD##*-antigravity-}"
+                printf '{"event":"init","conversation_id":"%s"}\\n' "$session"
+                printf '{"event":"result","result":{"status":"SUCCESS","conversation_id":"%s","response":"恢复条件：等待连接测试确认 %s 后继续。\\\\n"}}\\n' "\(reported)" "$token"
+                """
+            default:
+                output = "printf '%s' \"{\\\"type\\\":\\\"\(event)\\\",\\\"\(sessionKey)\\\":\\\"\(reported)\\\"}\""
+            }
             try """
             #!/bin/sh
-            session='\(provider == .codex ? codexSession.uuidString : "")'
+            session='\(provider == .codex || provider == .antigravity ? codexSession.uuidString : "")'
             while [ "$#" -gt 0 ]; do
                 if [ "$1" = --session-id ]; then session="$2"; break; fi
                 shift

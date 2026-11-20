@@ -138,7 +138,7 @@ private struct SettingsView: View {
     @ObservedObject var selection: SettingsSelection
     @StateObject private var claudeConnection = ClaudeConnection()
     @StateObject private var grokConnection = GrokConnection()
-    @StateObject private var geminiConnection = GeminiConnection()
+    @StateObject private var antigravityConnection = AntigravityConnection()
     @State private var showsCaptureTest = false
 
     var body: some View {
@@ -156,8 +156,9 @@ private struct SettingsView: View {
     }
 
     private var connectionPane: some View {
-        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 14) {
-            settingRow("来源") {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Text("来源").fontWeight(.medium)
                 ViewThatFits(in: .horizontal) {
                     providerPicker
                         .pickerStyle(.segmented)
@@ -166,40 +167,47 @@ private struct SettingsView: View {
                 }
                 .labelsHidden()
             }
-            settingRow("最近收件") {
-                if let lastReceivedAt = capture.lastReceivedAt(for: selection.provider) {
-                    Text(lastReceivedAt, format: .dateTime.year().month().day().hour().minute().second())
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("本次启动后尚未收到此来源的普通对话回复。")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            settingRow("\(hookName) Hook") {
+            Divider()
+            settingsStep("1. 允许读取回复") {
                 connectionControls
                     .disabled(liveProbe.activeProvider == selection.provider)
             }
-            if capture.statusMessage.hasPrefix("回复队列读取失败") {
-                settingRow("回复队列") {
-                    Text(capture.statusMessage).foregroundStyle(.red)
-                }
-            }
-            Divider().gridCellUnsizedAxes(.horizontal)
-            settingRow("真实连接验证") {
+            Divider()
+            settingsStep("2. 验证连接") {
                 liveTestControls
             }
-            Divider().gridCellUnsizedAxes(.horizontal)
-            DisclosureGroup("本地模拟采集", isExpanded: $showsCaptureTest) {
+            Divider()
+            ordinaryReceipt
+            if capture.statusMessage.hasPrefix("回复队列读取失败") {
+                Text("暂时无法读取新回复。请检查 Agent Todo 的本地存储权限。")
+                    .foregroundStyle(.red)
+            }
+            Divider()
+            DisclosureGroup("只测试本机待办识别", isExpanded: $showsCaptureTest) {
                 CaptureTestControls(test: captureTest)
                     .padding(.top, 7)
             }
         }
-        .frame(maxWidth: 500)
+        .frame(maxWidth: 500, alignment: .leading)
+    }
+
+    private var ordinaryReceipt: some View {
+        let provider = selection.provider
+        return Group {
+            if let lastReceivedAt = capture.lastReceivedAt(for: provider) {
+                let date = lastReceivedAt.formatted(.dateTime.year().month().day().hour().minute().second())
+                Text("最近一次收到 \(provider.name) 的对话回复：\(date)")
+            } else {
+                Text("本次打开 Agent Todo 后，还没收到 \(provider.name) 的对话回复。")
+            }
+        }
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var providerPicker: some View {
         Picker("来源", selection: $selection.provider) {
-            ForEach([HoldProvider.codex, .claude, .grok, .gemini], id: \.self) { source in
+            ForEach([HoldProvider.codex, .claude, .grok, .antigravity], id: \.self) { source in
                 Text(source.name).tag(source)
             }
         }
@@ -214,15 +222,11 @@ private struct SettingsView: View {
             ClaudeConnectionControls(connection: claudeConnection)
         case .grok:
             GrokConnectionControls(connection: grokConnection)
-        case .gemini:
-            GeminiConnectionControls(connection: geminiConnection)
-        case .unknown:
+        case .antigravity:
+            AntigravityConnectionControls(connection: antigravityConnection)
+        case .gemini, .unknown:
             EmptyView()
         }
-    }
-
-    private var hookName: String {
-        selection.provider == .gemini ? "AfterAgent" : "Stop"
     }
 
     private var cliURL: URL? {
@@ -230,32 +234,17 @@ private struct SettingsView: View {
         case .codex: connection.cliURL
         case .claude: claudeConnection.cliURL
         case .grok: grokConnection.cliURL
-        case .gemini: geminiConnection.cliURL
-        case .unknown: nil
+        case .antigravity: antigravityConnection.cliURL
+        case .gemini, .unknown: nil
         }
     }
 
     private var probeConfiguration: URL? {
         switch selection.provider {
-        case .codex, .unknown: nil
+        case .codex, .gemini, .unknown: nil
         case .claude: claudeConnection.probeConfiguration
         case .grok: grokConnection.probeConfiguration
-        case .gemini: geminiConnection.probeConfiguration
-        }
-    }
-
-    private var setupInstructions: String {
-        switch selection.provider {
-        case .codex:
-            "请先在本页配置并检查 Codex，按提示确认信任 Stop Hook。"
-        case .claude:
-            "请先在本页检查 Claude Code 配置，按提示启用 Stop Hook。"
-        case .grok:
-            "请先在本页检查 Grok 配置，按提示启用 Grok 采集。"
-        case .gemini:
-            "请先在本页检查 Gemini CLI 配置，按提示启用 Gemini CLI 采集或手动合并 AfterAgent Hook 后重新检查。"
-        case .unknown:
-            "请先选择一个来源。"
+        case .antigravity: antigravityConnection.probeConfiguration
         }
     }
 
@@ -263,39 +252,44 @@ private struct SettingsView: View {
         let provider = selection.provider
         let state = liveProbe.state(for: provider)
         return VStack(alignment: .leading, spacing: 7) {
-            Text(provider == .grok
-                 ? "点击发送后，使用当前 Grok 登录发送一条测试消息。Grok 可能额外调用模型生成会话标题，额度以 Grok CLI 记录为准。"
-                 : "点击发送后，使用当前 \(provider.name) 登录发送一条测试消息，可能消耗模型额度。")
-                .foregroundStyle(.secondary)
-
             switch state {
             case .idle:
                 EmptyView()
             case .running:
                 HStack {
                     ProgressView().controlSize(.small)
-                    Text("等待本次测试的 \(hookName) Hook 回执…")
+                    Text("正在用 \(provider.name) 发消息并等待回复…")
                 }
             case .passed:
-                Text("验证通过。已收到本次测试的 \(hookName) Hook 回执。")
+                Text("\(provider.name) 验证通过。Agent Todo 已收到测试回复。")
             case .failed(let message):
-                Text("验证失败。\(message)").foregroundStyle(.red).textSelection(.enabled)
+                Text("\(provider.name) 验证失败。\(message)")
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
             case .cancelled:
-                Text("已取消验证。").foregroundStyle(.secondary)
+                Text("已取消 \(provider.name) 的连接验证。").foregroundStyle(.secondary)
             }
 
             if liveProbe.activeProvider == provider {
                 Button("取消验证") { liveProbe.cancel() }
             } else {
                 if cliURL == nil {
-                    Text(setupInstructions).foregroundStyle(.secondary)
+                    Text("完成第 1 步后即可发送测试消息。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("使用当前的 \(provider.name) 登录发送一条消息，可能消耗模型额度。")
+                        .foregroundStyle(.secondary)
+                    if provider == .grok {
+                        Text("Grok 可能另外调用模型生成会话标题，额度以 Grok CLI 的记录为准。")
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if let active = liveProbe.activeProvider {
-                    Text("\(active.name) 正在验证，完成后可发送新的测试消息。")
+                    Text("请等 \(active.name) 的验证结束后再发送。")
                         .foregroundStyle(.secondary)
-                    Button("查看 \(active.name) 验证") { selection.provider = active }
+                    Button("查看 \(active.name) 的验证") { selection.provider = active }
                 }
-                Button(sendTitle(for: state)) {
+                Button(sendTitle(for: state, provider: provider)) {
                     guard let cliURL else { return }
                     liveProbe.start(provider: provider, cli: cliURL, configuration: probeConfiguration)
                 }
@@ -305,9 +299,9 @@ private struct SettingsView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func sendTitle(for state: CodexLiveProbe.State) -> String {
-        if case .failed = state { return "重试发送一条测试消息" }
-        return "发送一条测试消息"
+    private func sendTitle(for state: CodexLiveProbe.State, provider: HoldProvider) -> String {
+        if case .failed = state { return "重新向 \(provider.name) 发送测试消息" }
+        return "向 \(provider.name) 发送测试消息"
     }
 
     private var aboutPane: some View {
@@ -330,14 +324,12 @@ private struct SettingsView: View {
         .padding(.top, 16)
     }
 
-    private func settingRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        GridRow(alignment: .top) {
-            Text(label)
-                .fontWeight(.medium)
-                .fixedSize()
-                .gridColumnAlignment(.trailing)
+    private func settingsStep<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
             content()
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -347,17 +339,16 @@ private struct CaptureTestControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("用模拟回复检查 Agent Todo 的本地采集流程，无需调用模型。")
+            Text("使用模拟回复，无需登录或消耗额度。测试待办不会加入你的列表。")
                 .foregroundStyle(.secondary)
             feedback
-                .accessibilityElement(children: .combine)
             switch test.state {
             case .running:
-                Button("取消测试") { test.cancel() }
+                Button("取消自测") { test.cancel() }
             case .cancelling:
                 ProgressView().controlSize(.small)
             default:
-                Button("运行模拟采集") { test.start() }
+                Button("运行本机自测") { test.start() }
             }
         }
     }
@@ -368,18 +359,17 @@ private struct CaptureTestControls: View {
         case .idle:
             EmptyView()
         case .running:
-            Text("正在测试 Hook、识别和保存…").foregroundStyle(.secondary)
+            Text("正在用模拟回复检查待办识别…").foregroundStyle(.secondary)
         case .cancelling:
             Text("正在清理测试数据…").foregroundStyle(.secondary)
-        case .passed(let condition):
-            Text("本地测试通过 · \(condition)")
-                .textSelection(.enabled)
+        case .passed:
+            Text("本机自测通过，已从模拟回复中识别出 1 条待办。")
         case .failed(let message):
-            Text("本地测试失败。\(message)")
+            Text("本机自测失败。请重试，或展开查看原因。")
                 .foregroundStyle(.red)
-                .help(message)
+            ConnectionErrorDetails(message: message)
         case .cancelled:
-            Text("已取消本地测试。").foregroundStyle(.secondary)
+            Text("已取消本机自测。").foregroundStyle(.secondary)
         }
     }
 }

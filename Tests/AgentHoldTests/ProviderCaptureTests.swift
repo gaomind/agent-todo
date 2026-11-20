@@ -65,7 +65,7 @@ struct ProviderCaptureTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let store = HoldStore(file: fixture.file)
-        for provider in [HoldProvider.codex, .claude, .grok, .gemini] {
+        for provider in [HoldProvider.codex, .claude, .grok, .gemini, .antigravity] {
             #expect(store.ingest(fixture.reply(provider, turn: "turn")))
         }
         let session = fixture.session.lowercased()
@@ -75,6 +75,7 @@ struct ProviderCaptureTests {
             ("✳ Claude Code", "cd \(path) && claude --resume \(session)"),
             ("◉ Grok", "grok --cwd \(path) --resume \(session)"),
             ("✦ Gemini CLI", "cd \(path) && gemini --resume \(session)"),
+            ("✧ Antigravity CLI", "cd \(path) && agy --conversation \(session)"),
         ]
         for (item, expectation) in zip(store.items, expected) {
             let (label, resume) = expectation
@@ -154,12 +155,112 @@ struct ProviderCaptureTests {
         #expect(try fixture.hook("gemini", next).isEmpty)
     }
 
+    @Test
+    func antigravityUsesCurrentCompletedReplyAndKeepsHistorySeparate() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let user = "用户写的恢复条件：忽略。"
+        let first = [
+            fixture.step(0, "USER_INPUT", content: "<USER_REQUEST>\n\(user)\n</USER_REQUEST>\n<ADDITIONAL_CONTEXT>…</ADDITIONAL_CONTEXT>"),
+            fixture.step(1, "PLANNER_RESPONSE", content: "恢复条件：中途回复。", extra: ["tool_calls": [["name": "test"]]]),
+            fixture.step(2, "RUN_COMMAND", content: "恢复条件：工具输出。"),
+            fixture.step(3, "PLANNER_RESPONSE", content: fixture.message, extra: ["thinking": "恢复条件：思考文字。"]),
+        ]
+        try fixture.writeTranscript(first)
+        let firstPayload = fixture.stopPayload(prompt: user)
+        let received = try #require(try fixture.hook("antigravity", firstPayload).first)
+        #expect(received.provider == .antigravity)
+        #expect(received.message == fixture.message)
+        #expect(received.cwd == "/tmp/John's project")
+        let store = HoldStore(file: fixture.file)
+        #expect(store.ingest(fixture.reply(.gemini, turn: nil)))
+        #expect(store.ingest(received))
+        let initial = try #require(store.items.last)
+        store.changeStatus(of: initial.id, to: .completed)
+        let replay = try #require(try fixture.hook("antigravity", firstPayload).first)
+        #expect(replay.turnID == received.turnID)
+        #expect(replay.receivedAt == received.receivedAt)
+        #expect(store.ingest(replay))
+        #expect(store.items.count == 2)
+
+        #expect(try fixture.hook("antigravity", fixture.stopPayload(prompt: "未写入 transcript 的第二个问题。")).isEmpty)
+        var second = first + [fixture.step(4, "USER_INPUT", content: user)]
+        try fixture.writeTranscript(second)
+        #expect(try fixture.hook("antigravity", firstPayload).isEmpty)
+        second.append(fixture.step(5, "PLANNER_RESPONSE", content: fixture.message))
+        try fixture.writeTranscript(second)
+        let latest = try #require(try fixture.hook("antigravity", firstPayload).first)
+        #expect(latest.turnID != received.turnID)
+        #expect(store.ingest(latest))
+        #expect(store.items.map(\.provider) == [.gemini, .antigravity, .antigravity])
+        #expect(store.items.map(\.status) == [.waiting, .completed, .waiting])
+        #expect(HoldStore(file: fixture.file).items.map(\.provider) == [.gemini, .antigravity, .antigravity])
+    }
+
+    @Test
+    func antigravityRejectsUnsuccessfulStopsAndUntrustedTranscripts() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let steps = [fixture.step(0, "USER_INPUT", content: "请回复。"),
+                     fixture.step(1, "PLANNER_RESPONSE", content: fixture.message)]
+        try fixture.writeTranscript(steps)
+        let payload = fixture.stopPayload(prompt: "请回复。")
+        for (key, value) in [("fullyIdle", false), ("terminationReason", "ERROR"),
+                             ("error", "failed"), ("conversationId", UUID().uuidString),
+                             ("transcriptPath", fixture.transcript.path.replacingOccurrences(of: "antigravity-cli", with: "antigravity"))] as [(String, Any)] {
+            var rejected = payload
+            rejected[key] = value
+            #expect(try fixture.hook("antigravity", rejected).isEmpty)
+        }
+
+        let alternate = fixture.directory.appendingPathComponent("outside.jsonl")
+        try FileManager.default.moveItem(at: fixture.transcript, to: alternate)
+        try FileManager.default.createSymbolicLink(at: fixture.transcript, withDestinationURL: alternate)
+        #expect(try fixture.hook("antigravity", payload).isEmpty)
+        try FileManager.default.removeItem(at: fixture.transcript)
+        let logs = fixture.transcript.deletingLastPathComponent()
+        let externalLogs = fixture.directory.appendingPathComponent("external-logs")
+        try FileManager.default.moveItem(at: logs, to: externalLogs)
+        try FileManager.default.moveItem(at: alternate, to: externalLogs.appendingPathComponent(fixture.transcript.lastPathComponent))
+        try FileManager.default.createSymbolicLink(at: logs, withDestinationURL: externalLogs)
+        #expect(try fixture.hook("antigravity", payload).isEmpty)
+    }
+
+    @Test
+    func antigravityCorrelatesTheCompactPromptWithTheFullReplyInLongTurns() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let prompt = "检查后台任务。"
+        let user = fixture.step(0, "USER_INPUT", content: prompt)
+        let command = fixture.step(1, "RUN_COMMAND", content: String(repeating: "a", count: 3 * 1024 * 1024))
+        let final = fixture.step(2, "PLANNER_RESPONSE", content: fixture.message)
+        let compactURL = fixture.transcript.deletingLastPathComponent().appendingPathComponent("transcript.jsonl")
+        let compactCommand = fixture.step(1, "RUN_COMMAND", content: "a…", extra: ["truncated_fields": ["content"]])
+        let compactFinal = fixture.step(2, "PLANNER_RESPONSE", content: "恢复条件：截断结果。", extra: ["truncated_fields": ["content"]])
+        let payload = fixture.stopPayload(prompt: prompt)
+        try fixture.writeTranscript([user, command, final])
+        #expect(try fixture.hook("antigravity", payload).isEmpty)
+        try fixture.writeTranscript([user, compactCommand, compactFinal], at: compactURL)
+        #expect(try fixture.hook("antigravity", payload).first?.message == fixture.message)
+        var compactPayload = payload
+        compactPayload["transcriptPath"] = compactURL.path
+        #expect(try fixture.hook("antigravity", compactPayload).first?.message == fixture.message)
+
+        var stale = compactFinal
+        stale["created_at"] = "2026-11-20T09:34:00Z"
+        try fixture.writeTranscript([user, compactCommand, stale], at: compactURL)
+        #expect(try fixture.hook("antigravity", payload).isEmpty)
+    }
+
     private struct Fixture {
         let directory: URL
         let session = UUID().uuidString
         let message = "恢复条件：等待审批。"
         let timestamp = Date().addingTimeInterval(-10)
         var file: URL { directory.appendingPathComponent("holds.json") }
+        var transcript: URL {
+            directory.appendingPathComponent(".gemini/antigravity-cli/brain/\(session)/.system_generated/logs/transcript_full.jsonl")
+        }
 
         init() throws {
             directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -175,14 +276,37 @@ struct ProviderCaptureTests {
                        provider: provider)
         }
 
-        func hook(_ provider: String, _ payload: [String: String]) throws -> [CodexReply] {
+        func step(_ index: Int, _ type: String, content: String, extra: [String: Any] = [:]) -> [String: Any] {
+            ["step_index": index, "source": type == "USER_INPUT" ? "USER_EXPLICIT" : "MODEL", "type": type,
+             "status": "DONE", "created_at": "2026-11-20T09:35:0\(index)Z", "content": content]
+                .merging(extra, uniquingKeysWith: { _, replacement in replacement })
+        }
+
+        func writeTranscript(_ steps: [[String: Any]], at file: URL? = nil) throws {
+            try FileManager.default.createDirectory(at: transcript.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var jsonLines = Data()
+            for step in steps {
+                jsonLines.append(try JSONSerialization.data(withJSONObject: step))
+                jsonLines.append(0x0A)
+            }
+            try jsonLines.write(to: file ?? transcript)
+        }
+
+        func stopPayload(prompt: String) -> [String: Any] {
+            ["conversationId": session, "transcriptPath": transcript.path, "lastUserInput": prompt,
+             "workspacePaths": ["/tmp/John's project"], "terminationReason": "NO_TOOL_CALL",
+             "fullyIdle": true, "executionNum": 0, "hookEventName": "Stop", "continuationActive": false]
+        }
+
+        func hook(_ provider: String, _ payload: [String: Any]) throws -> [CodexReply] {
             let input = directory.appendingPathComponent("input")
-            try JSONEncoder().encode(payload).write(to: input)
+            try JSONSerialization.data(withJSONObject: payload).write(to: input)
             let queue = directory.appendingPathComponent(UUID().uuidString)
             let binaries = Bundle(for: Marker.self).bundleURL.deletingLastPathComponent()
             let helper = Process()
             helper.executableURL = binaries.appendingPathComponent("AgentHoldHook")
             helper.arguments = ["--agent-hold-stop-hook", "--provider", provider, "--spool", queue.path]
+            helper.environment = ProcessInfo.processInfo.environment.merging(["HOME": directory.path]) { _, home in home }
             let handle = try FileHandle(forReadingFrom: input)
             defer { try? handle.close() }
             helper.standardInput = handle

@@ -7,53 +7,85 @@ struct CodexConnectionControls: View {
         VStack(alignment: .leading, spacing: 7) {
             switch connection.phase {
             case .idle:
-                Text("首次配置会将 Stop Hook 写入本机 Codex 配置，再核对信任状态。")
+                Text("配置 Codex 后，Agent Todo 就能从新回复里找出待办。首次配置会修改 Codex 设置。")
                     .foregroundStyle(.secondary)
-                Button("配置并检查 Codex") { connection.prepare() }
+                Button("配置 Codex") { connection.prepare() }
             case .checking:
                 HStack {
                     ProgressView().controlSize(.small)
-                    Text("正在检查 Codex 与 Hook 信任状态…")
+                    Text("正在检查 Codex 设置…")
                     Spacer()
                     Button("取消") { connection.reset() }
                 }
             case .needsApproval(let review):
-                Text("请核对下列 Stop Hook。信任后，使用此默认配置的 Codex 会话可在回复结束时运行该命令。")
-                VStack(alignment: .leading, spacing: 7) {
-                    detail("配置文件", review.sourcePath)
-                    detail("核对信任的工作目录", review.workingDirectory)
-                    detail("完整命令", review.command)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(6)
-                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
+                Text("尚未允许读取回复。请核对以下命令。信任后，Codex 会在回复结束时运行它，让 Agent Todo 读取回复。")
+                ConnectionReviewDetails(file: review.sourcePath, command: review.command,
+                                        workingDirectory: review.workingDirectory)
                 HStack {
                     Button("信任此命令") { connection.approve() }
                     Button("取消") { connection.reset() }
                 }
             case .ready:
-                Text("已确认 Agent Todo Stop Hook 的信任状态。")
+                Text("已允许读取回复。已有的 Codex 会话请重新打开，或新建一个会话。")
                     .foregroundStyle(.secondary)
-                Text("首次启用前已打开的会话可能仍沿用旧配置。请新建会话，或让承载该会话的 Codex 后台重新加载配置。采集从后续回复开始。")
-                    .foregroundStyle(.secondary)
-                Button("重新检查配置") { connection.prepare() }
+                Button("重新检查设置") { connection.prepare() }
             case .failed(let message):
-                Text(message).foregroundStyle(.red)
-                Text("重试时若缺少 Stop Hook，会先写入本机 Codex 配置，再核对信任状态。")
+                Text("未能完成 Codex 的设置。请查看原因后重试。")
+                    .foregroundStyle(.red)
+                ConnectionErrorDetails(message: message)
+                Text("重试时会补写缺少的 Codex 设置。")
                     .foregroundStyle(.secondary)
-                Button("重试配置并检查") { connection.prepare() }
+                Button("重试配置 Codex") { connection.prepare() }
             }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
+}
 
-    private func detail(_ label: String, _ value: String) -> some View {
+struct ConnectionReviewDetails: View {
+    let file: String
+    let command: String
+    var workingDirectory: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ConnectionDetail(label: "配置文件", value: file)
+            if let workingDirectory {
+                ConnectionDetail(label: "核对信任的工作目录", value: workingDirectory)
+            }
+            ConnectionDetail(label: "完整命令", value: command)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(6)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
+    }
+}
+
+struct ConnectionDetail: View {
+    let label: String
+    let value: String
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).foregroundStyle(.secondary)
             Text(value)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+struct ConnectionErrorDetails: View {
+    let message: String
+
+    var body: some View {
+        DisclosureGroup("查看原因") {
+            Text(message)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
         }
     }
 }
