@@ -124,7 +124,7 @@ struct CaptureTests {
 
     @MainActor
     @Test
-    func recordsReceiptsSeparatelyAndNeverRoutesOtherProvidersToTheCodexProbe() async throws {
+    func routesProbeReceiptsAndRecordsOrdinaryReceiptsForEachProvider() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         let spool = ReplySpool(root: folder)
@@ -139,9 +139,9 @@ struct CaptureTests {
             return true
         }
         for (provider, offset, message) in [
-            (HoldProvider.claude, 1.0, "test"), (.grok, 2.0, "grok"),
+            (HoldProvider.claude, 1.0, "test"), (.claude, 1.5, "claude"), (.grok, 2.0, "grok"),
             (.codex, 3.0, "test"), (.codex, 4.0, "codex"), (.unknown, 5.0, "ignore"),
-            (.gemini, 6.0, "gemini"),
+            (.gemini, 6.0, "gemini"), (.gemini, 7.0, "test"),
         ] {
             let reply = CodexReply(sessionID: UUID().uuidString, cwd: nil, message: message,
                                    receivedAt: start.addingTimeInterval(offset), provider: provider)
@@ -151,9 +151,9 @@ struct CaptureTests {
         try await waitUntil { try spool.pending().isEmpty }
         await capture.stop()
         #expect(ordinary == [.claude, .grok, .codex, .gemini])
-        #expect(tested == [.codex, .codex])
+        #expect(tested == [.claude, .claude, .grok, .codex, .codex, .gemini, .gemini])
         #expect(capture.lastOrdinaryReceivedAt == start.addingTimeInterval(4))
-        #expect(capture.lastReceivedAt(for: .claude) == start.addingTimeInterval(1))
+        #expect(capture.lastReceivedAt(for: .claude) == start.addingTimeInterval(1.5))
         #expect(capture.lastReceivedAt(for: .grok) == start.addingTimeInterval(2))
         #expect(capture.lastReceivedAt(for: .gemini) == start.addingTimeInterval(6))
         #expect(capture.lastReceivedAt(for: .unknown) == nil)

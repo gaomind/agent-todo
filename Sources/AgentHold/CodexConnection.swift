@@ -25,6 +25,11 @@ final class CodexConnection: ObservableObject {
     private var operation: Task<Void, Never>?
     private let settings: Settings
 
+    var cliURL: URL? {
+        guard case let .ready(cli) = phase else { return nil }
+        return cli
+    }
+
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         settings = Settings(

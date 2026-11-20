@@ -17,6 +17,20 @@ private struct StopInput: Decodable {
     let timestamp: String?
 }
 
+private struct AntigravityStopInput: Decodable {
+    let hookEventName: String?
+    let conversationId: String?
+    let cwd: String?
+    let workspacePaths: [String]?
+    let transcriptPath: String?
+    let lastUserInput: String?
+    let executionNum: Int?
+    let terminationReason: String?
+    let error: String?
+    let fullyIdle: Bool?
+    let continuationActive: Bool?
+}
+
 private struct Reply: Encodable {
     let provider: HoldProvider
     let sessionID: String
@@ -70,6 +84,8 @@ private func capture() throws {
     let sessionID: String?
     let turn: String?
     let text: String?
+    var workspace = stop.cwd
+    var sourceDate: Date?
     switch provider {
     case .grok:
         guard (stop.hookEventName == "stop" || stop.hook_event_name == "Stop"),
@@ -82,6 +98,22 @@ private func capture() throws {
         sessionID = stop.session_id
         turn = nil
         text = stop.prompt_response
+    case .antigravity:
+        let stop = try JSONDecoder().decode(AntigravityStopInput.self, from: input)
+        guard stop.hookEventName == nil || stop.hookEventName == "Stop",
+              stop.fullyIdle == true, stop.continuationActive != true, stop.error?.isEmpty != false,
+              stop.terminationReason == "NO_TOOL_CALL" || stop.terminationReason == "model_stop",
+              let executionNum = stop.executionNum, executionNum >= 0,
+              let conversation = stop.conversationId, UUID(uuidString: conversation) != nil,
+              let path = stop.transcriptPath, let prompt = stop.lastUserInput, !prompt.isEmpty,
+              let response = AntigravityTranscript.reply(at: path, conversation: conversation, prompt: prompt)
+        else { return }
+        sessionID = conversation
+        turn = response.turnID
+        text = response.text
+        workspace = stop.cwd.flatMap { $0.hasPrefix("/") ? $0 : nil }
+            ?? stop.workspacePaths?.first(where: { $0.hasPrefix("/") })
+        sourceDate = response.receivedAt
     case .codex, .claude:
         guard stop.hook_event_name == "Stop" else { return }
         sessionID = stop.session_id
@@ -94,7 +126,7 @@ private func capture() throws {
           !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
     let turnID = turn.flatMap { $0.isEmpty || $0.utf8.count > 128 ? nil : $0 }
-    let cwd = stop.cwd.flatMap { $0.utf8.count > 4096 ? nil : $0 }
+    let cwd = workspace.flatMap { $0.utf8.count > 4096 ? nil : $0 }
     let encoder = JSONEncoder()
     encoder.outputFormatting = .withoutEscapingSlashes
     let now = Date()
@@ -106,7 +138,7 @@ private func capture() throws {
        eventDate >= Date(timeIntervalSince1970: 946_684_800), eventDate <= now.addingTimeInterval(60) {
         receivedAt = eventDate
     } else {
-        receivedAt = now
+        receivedAt = sourceDate ?? now
     }
     func encode(maximumBytes: Int) throws -> Data {
         let (front, tail) = retainedText(message, maximumBytes: maximumBytes)

@@ -11,22 +11,30 @@ Agent Todo 是一个 macOS 菜单栏应用。它从 CLI 助手的回复中识别
 ## 从 v0.0.1 升级
 
 1. 退出旧版，安装并打开 `Agent Todo.app`。旧版待办、来源回复和待处理的回复队列会从原有的本机目录继续加载。
-2. 在「设置…」→「连接」依次检查之前启用的来源。Codex CLI、Claude Code 和 Gemini CLI 可按界面提示更新 Hook 路径，Codex 还需要确认信任新命令。
+2. 在「设置…」→「连接与测试」依次检查之前启用的来源。Codex CLI 和 Claude Code 可按界面提示更新 Hook 路径，Codex 还需要确认信任新命令。
 3. 如果 Grok CLI 提示 Hook 路径不匹配，先确认 `~/.grok/hooks/agent-hold.json`（设置了 `GROK_HOME` 时为 `$GROK_HOME/hooks/agent-hold.json`）由旧版生成，再将该文件移出 `hooks` 目录并通过设置重新启用 Grok 采集。
 4. 重新打开各来源的 CLI 会话，确认后续回复可以进入 Agent Todo，再移除旧版应用。
 
-## 启用采集
+## 允许读取回复并验证连接
 
-在菜单栏右键或按住 Control 点击清单图标，选择「设置…」→「连接」。在「来源」中选择已安装的 CLI，按界面提示检查配置并确认启用。Codex 需要确认信任界面显示的 Hook 命令。
+右键或按住 Control 点击菜单栏的清单图标，选择「设置…」→「连接与测试」，再选择 Codex、Claude Code、Grok 或 Antigravity CLI。
 
-| CLI | 采集 Hook |
-| --- | --- |
-| Codex CLI | `Stop` |
-| Claude Code | `Stop` |
-| Grok CLI | `Stop` |
-| Gemini CLI | `AfterAgent` |
+1. 在「允许读取回复」下检查设置。如果还没允许，按提示确认。Codex 首次使用时需点击「配置 Codex」，并确认信任界面上显示的命令。设置完成后，请按界面提示重新打开已有会话。
+2. 如要确认连接，点击对应的发送按钮，例如「向 Antigravity CLI 发送测试消息」。应用会用该 CLI 的当前登录发一条消息，可能消耗模型额度。Grok 可能另外调用模型生成会话标题。Agent Todo 收到本次测试回复后会显示验证通过。
 
-可以在「设置…」→「测试」运行「测试采集」，用模拟回复验证本地采集。
+页面会显示所选来源最近一次对话回复的接收时间。若只想检查本机能否识别待办，展开「只测试本机待办识别」并点击「运行本机自测」。自测使用模拟回复，无需登录或消耗额度，测试待办不会加入你的列表。
+
+### Google Antigravity CLI
+
+用 Google 的官方命令安装 Antigravity CLI 后，在终端运行 `agy` 并按提示登录。
+
+```sh
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+```
+
+回到 Agent Todo 检查设置，确认允许读取回复，再重新打开 Antigravity CLI 会话。Agent Todo 会将 `agent-todo` 条目加入 Google 产品共享的 `~/.gemini/config/hooks.json`，保留其他条目，采集仅限 Antigravity CLI 回复。
+
+已有 Gemini CLI 待办仍可查看和续接。
 
 ## 查看和恢复待办
 

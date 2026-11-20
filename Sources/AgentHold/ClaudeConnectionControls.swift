@@ -7,42 +7,29 @@ struct ClaudeConnectionControls: View {
         VStack(alignment: .leading, spacing: 7) {
             switch connection.phase {
             case .idle:
-                Text("启用 Stop Hook 后，Agent Todo 会在 Claude Code 回复结束时读取回复并识别待办。")
+                Text("连接后，Agent Todo 会从 Claude Code 的新回复里找出待办。")
                     .foregroundStyle(.secondary)
-                Button("检查 Claude Code 配置") { connection.prepare() }
+                Button("检查 Claude Code 设置") { connection.prepare() }
             case .needsApproval(let review):
-                Text("确认后会向 Claude Code 的用户配置加入这条 Stop Hook。")
-                VStack(alignment: .leading, spacing: 7) {
-                    detail("配置文件", review.configuration.path)
-                    detail("完整命令", review.command)
+                Text("尚未允许读取回复。确认后会更新 Claude Code 的设置，Agent Todo 就能从新回复中识别待办。")
+                DisclosureGroup("查看将写入的配置") {
+                    ConnectionReviewDetails(file: review.configuration.path, command: review.command)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(6)
-                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
                 HStack {
-                    Button("启用 Stop Hook") { connection.approve() }
+                    Button("允许读取回复") { connection.approve() }
                     Button("取消") { connection.reset() }
                 }
-            case .ready(let configuration):
-                Text("已配置 Claude Code Stop Hook。请在已信任的工作区开启新会话，确认后续回复可以进入 Agent Todo。")
+            case .ready:
+                Text("已允许读取回复。请在已信任的工作区新开一个 Claude Code 会话。")
                     .foregroundStyle(.secondary)
-                detail("配置文件", configuration.path)
-                Button("重新检查配置") { connection.prepare() }
+                Button("重新检查设置") { connection.prepare() }
             case .failed(let message):
-                Text(message).foregroundStyle(.red)
-                Button("重新检查配置") { connection.prepare() }
+                Text("未能完成 Claude Code 的设置。请查看原因后重新检查。")
+                    .foregroundStyle(.red)
+                ConnectionErrorDetails(message: message)
+                Button("重新检查设置") { connection.prepare() }
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func detail(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 }

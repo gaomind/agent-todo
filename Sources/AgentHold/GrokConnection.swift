@@ -16,6 +16,18 @@ final class GrokConnection: ObservableObject {
     private var operation: Task<Void, Never>?
     private let home: URL
     private let hook: URL?
+    private var checkedCLI: URL?
+    private var checkedConfiguration: URL?
+
+    var cliURL: URL? {
+        guard case .ready = phase else { return nil }
+        return checkedCLI
+    }
+
+    var probeConfiguration: URL? {
+        guard case .ready = phase else { return nil }
+        return checkedConfiguration
+    }
 
     init() {
         home = FileManager.default.homeDirectoryForCurrentUser
@@ -50,6 +62,8 @@ final class GrokConnection: ObservableObject {
                     executable: hook
                 )
                 if install, configuration != approved { throw GrokConnectionFailure.changed }
+                checkedCLI = cli
+                checkedConfiguration = configuration.file
                 let current = try await GrokInspection.run(cli: cli, home: home, configuration: configuration)
                 try Task.checkCancellation()
                 if current.contains(configuration) {
@@ -83,24 +97,10 @@ final class GrokConnection: ObservableObject {
     }
 
     private func findCLI() throws -> URL {
-        let pathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":")
-            .filter { $0.hasPrefix("/") }
-            .map { URL(fileURLWithPath: String($0), isDirectory: true).appendingPathComponent("grok") }
-        let candidates = [
-            home.appendingPathComponent(".grok/bin/grok"),
-            home.appendingPathComponent(".local/bin/grok"),
-            URL(fileURLWithPath: "/opt/homebrew/bin/grok"),
-            URL(fileURLWithPath: "/usr/local/bin/grok"),
-        ] + pathCandidates
-        for candidate in candidates {
-            let executable = candidate.resolvingSymlinksInPath().standardizedFileURL
-            let metadata = try? executable.resourceValues(forKeys: [.isRegularFileKey])
-            if metadata?.isRegularFile == true, FileManager.default.isExecutableFile(atPath: executable.path) {
-                return executable
-            }
+        guard let executable = ProviderCLI.find("grok", home: home, extra: [home.appendingPathComponent(".grok/bin")]) else {
+            throw GrokConnectionFailure.missingCLI
         }
-        throw GrokConnectionFailure.missingCLI
+        return executable
     }
 }
 
@@ -185,7 +185,7 @@ struct GrokInspection: Decodable {
         process.executableURL = cli
         process.currentDirectoryURL = home
         process.arguments = ["--cwd", home.path, "inspect", "--json"]
-        var environment = ProcessInfo.processInfo.environment
+        var environment = ProviderCLI.launchEnvironment(for: cli, environment: ProcessInfo.processInfo.environment)
         environment["GROK_HOME"] = configuration.grokHome.path
         process.environment = environment
         process.standardInput = FileHandle.nullDevice

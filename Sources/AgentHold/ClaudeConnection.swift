@@ -36,18 +36,14 @@ final class ClaudeConnection: ObservableObject {
             )
         }
 
-        func findCLI() throws {
-            let pathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
-                .filter { $0.hasPrefix("/") }
-                .map { URL(fileURLWithPath: String($0), isDirectory: true).appendingPathComponent("claude") }
-            let candidates = cli.map { [$0] } ?? [
-                home.appendingPathComponent(".local/bin/claude"),
-                URL(fileURLWithPath: "/opt/homebrew/bin/claude"),
-                URL(fileURLWithPath: "/usr/local/bin/claude"),
-            ] + pathCandidates
-            guard candidates.contains(where: ClaudeHookConfiguration.isExecutable) else {
+        func findCLI() throws -> URL {
+            guard let executable = cli ?? ProviderCLI.find("claude", home: home) else {
                 throw ClaudeHookConfiguration.Failure.missingCLI
             }
+            guard ClaudeHookConfiguration.isExecutable(executable) else {
+                throw ClaudeHookConfiguration.Failure.missingCLI
+            }
+            return executable
         }
 
         var configuration: URL {
@@ -58,6 +54,17 @@ final class ClaudeConnection: ObservableObject {
 
     @Published private(set) var phase = Phase.idle
     private let settings: Settings
+    private var checkedCLI: URL?
+
+    var cliURL: URL? {
+        guard case .ready = phase else { return nil }
+        return checkedCLI
+    }
+
+    var probeConfiguration: URL? {
+        guard case let .ready(configuration) = phase else { return nil }
+        return configuration
+    }
 
     init(settings: Settings = .live()) {
         self.settings = settings
@@ -68,7 +75,7 @@ final class ClaudeConnection: ObservableObject {
             if settings.hasRelativeConfigurationDirectory {
                 throw ClaudeHookConfiguration.Failure.relativeConfigurationDirectory
             }
-            try settings.findCLI()
+            checkedCLI = try settings.findCLI()
             guard let hook = settings.hook, ClaudeHookConfiguration.isExecutable(hook) else {
                 throw ClaudeHookConfiguration.Failure.missingHook
             }
