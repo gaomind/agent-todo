@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CodexConnectionControls: View {
     @ObservedObject var connection: CodexConnection
-    @ObservedObject var probe: CodexLiveProbe
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -38,7 +37,6 @@ struct CodexConnectionControls: View {
                 Text("首次启用前已打开的会话可能仍沿用旧配置。请新建会话，或让承载该会话的 Codex 后台重新加载配置。采集从后续回复开始。")
                     .foregroundStyle(.secondary)
                 Button("重新检查配置") { connection.prepare() }
-                    .disabled(probe.isRunning)
             case .failed(let message):
                 Text(message).foregroundStyle(.red)
                 Text("重试时若缺少 Stop Hook，会先写入本机 Codex 配置，再核对信任状态。")
@@ -57,58 +55,5 @@ struct CodexConnectionControls: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-}
-
-struct CodexLiveTestControls: View {
-    @ObservedObject var connection: CodexConnection
-    @ObservedObject var probe: CodexLiveProbe
-    let showConnection: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("使用当前 Codex 登录发送一条测试消息，消耗一次模型额度。")
-                .foregroundStyle(.secondary)
-
-            switch probe.state {
-            case .running:
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text("等待本次测试消息的 Stop 回复…")
-                }
-                Button("取消验证") { probe.cancel() }
-            case .passed:
-                Text("真实连接验证通过。已收到验证会话的 Stop 回复。")
-                sendControls
-            case .failed(let message):
-                Text("真实连接验证失败。\(message)").foregroundStyle(.red)
-                sendControls
-            case .cancelled:
-                Text("已取消验证。")
-                sendControls
-            case .idle:
-                sendControls
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    @ViewBuilder
-    private var sendControls: some View {
-        if case .ready(let cli) = connection.phase {
-            Button("发送一条测试消息") { probe.start(cli: cli) }
-        } else {
-            Text("请先在「连接」中确认 Codex Stop Hook 的信任状态。")
-                .foregroundStyle(.secondary)
-            Button("前往 Codex 连接", action: showConnection)
-        }
-    }
-}
-
-private extension CodexLiveProbe {
-    var isRunning: Bool {
-        if case .running = state { return true }
-        return false
     }
 }

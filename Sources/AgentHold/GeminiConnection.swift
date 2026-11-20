@@ -30,54 +30,42 @@ final class GeminiConnection: ObservableObject {
             guard let hook, ClaudeHookConfiguration.isExecutable(hook) else {
                 throw GeminiHookConfiguration.Failure.missingHook
             }
-            let home = try GeminiConnection.geminiHome(userHome: home, environment: environment)
+            let file = try probeConfiguration()
             return GeminiHookConfiguration(
-                file: home.appendingPathComponent(".gemini", isDirectory: true)
-                    .resolvingSymlinksInPath().standardizedFileURL.appendingPathComponent("settings.json"),
+                file: file.deletingLastPathComponent().resolvingSymlinksInPath()
+                    .standardizedFileURL.appendingPathComponent(file.lastPathComponent),
                 executable: hook
             )
         }
 
-        func findCLI() throws {
-            let pathCandidates = (environment["PATH"] ?? "").split(separator: ":")
-                .filter { $0.hasPrefix("/") }
-                .map { URL(fileURLWithPath: String($0), isDirectory: true).appendingPathComponent("gemini") }
-            let prefix = environment["npm_config_prefix"] ?? environment["NPM_CONFIG_PREFIX"]
-            let prefixCandidate = prefix.flatMap { path in
-                path.hasPrefix("/") ? URL(fileURLWithPath: path).appendingPathComponent("bin/gemini") : nil
-            }
-            let candidates = pathCandidates + [
-                prefixCandidate,
-                home.appendingPathComponent(".local/bin/gemini"),
-                home.appendingPathComponent(".npm-global/bin/gemini"),
-                home.appendingPathComponent(".volta/bin/gemini"),
-                home.appendingPathComponent(".asdf/shims/gemini"),
-                URL(fileURLWithPath: "/opt/homebrew/bin/gemini"),
-                URL(fileURLWithPath: "/usr/local/bin/gemini"),
-            ].compactMap { $0 }
-            if let cli {
-                guard ClaudeHookConfiguration.isExecutable(cli) else { throw GeminiHookConfiguration.Failure.missingCLI }
-                return
-            }
-            if candidates.contains(where: ClaudeHookConfiguration.isExecutable) { return }
+        func probeConfiguration() throws -> URL {
+            let home = try GeminiConnection.geminiHome(userHome: home, environment: environment)
+            return home.appendingPathComponent(".gemini/settings.json")
+        }
 
-            // Finder-launched apps may lack the Node bin directory managed by nvm.
-            let nvm = environment["NVM_DIR"].flatMap { path in
-                path.hasPrefix("/") ? URL(fileURLWithPath: path, isDirectory: true) : nil
-            } ?? home.appendingPathComponent(".nvm", isDirectory: true)
-            let nodeVersions = nvm.appendingPathComponent("versions/node", isDirectory: true)
-            let installed = (try? FileManager.default.contentsOfDirectory(
-                at: nodeVersions, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-            )) ?? []
-            guard installed.contains(where: { version in
-                version.lastPathComponent.hasPrefix("v") &&
-                    ClaudeHookConfiguration.isExecutable(version.appendingPathComponent("bin/gemini"))
-            }) else { throw GeminiHookConfiguration.Failure.missingCLI }
+        func findCLI() throws -> URL {
+            guard let executable = cli ?? ProviderCLI.find("gemini", home: home, environment: environment),
+                  ClaudeHookConfiguration.isExecutable(executable) else {
+                throw GeminiHookConfiguration.Failure.missingCLI
+            }
+            return executable
         }
     }
 
     @Published private(set) var phase = Phase.idle
     private let settings: Settings
+    private var checkedCLI: URL?
+    private var checkedConfiguration: URL?
+
+    var cliURL: URL? {
+        guard case .ready = phase else { return nil }
+        return checkedCLI
+    }
+
+    var probeConfiguration: URL? {
+        guard case .ready = phase else { return nil }
+        return checkedConfiguration
+    }
 
     init(settings: Settings = .live()) {
         self.settings = settings
@@ -85,8 +73,9 @@ final class GeminiConnection: ObservableObject {
 
     func check() {
         update {
-            try settings.findCLI()
+            checkedCLI = try settings.findCLI()
             let configuration = try settings.configuration()
+            checkedConfiguration = try settings.probeConfiguration()
             do {
                 return try configuration.isInstalled() ? .ready : .needsApproval(configuration)
             } catch GeminiHookConfiguration.Failure.manualConfiguration {

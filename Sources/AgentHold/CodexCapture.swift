@@ -74,7 +74,7 @@ final class CodexCapture: ObservableObject {
     private func deliver(_ reply: CodexReply, conditions: [String]) -> Bool {
         guard !Task.isCancelled else { return false }
         guard reply.provider != .unknown else { return true }
-        if reply.provider == .codex, consumeProbe?(reply, conditions) == true { return true }
+        if consumeProbe?(reply, conditions) == true { return true }
         if UUID(uuidString: reply.sessionID) != nil,
            lastReceivedAt(for: reply.provider).map({ reply.receivedAt > $0 }) ?? true {
             receipts[reply.provider] = reply.receivedAt

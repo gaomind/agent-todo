@@ -8,10 +8,25 @@ struct GeminiConnectionTests {
     func findsGlobalNpmInstallUnderNVMWithoutShellPath() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let cli = fixture.home.appendingPathComponent(".nvm/versions/node/v22.23.1/bin/gemini")
-        try Fixture.makeExecutable(cli)
+        let version = fixture.home.appendingPathComponent(".nvm/versions/node/v22.23.1")
+        let cli = version.appendingPathComponent("bin/gemini")
+        let script = version.appendingPathComponent("lib/node_modules/@google/gemini-cli/bundle/gemini.js")
+        try Fixture.makeExecutable(script)
+        try Fixture.makeExecutable(version.appendingPathComponent("bin/node"))
+        try FileManager.default.createSymbolicLink(at: cli, withDestinationURL: script)
+
         let settings = GeminiConnection.Settings(home: fixture.home, hook: fixture.hook, environment: [:])
-        try settings.findCLI()
+        #expect(try settings.findCLI() == cli)
+
+        let userBin = fixture.home.appendingPathComponent(".local/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: userBin, withIntermediateDirectories: true)
+        let linkedCLI = userBin.appendingPathComponent("gemini")
+        try FileManager.default.createSymbolicLink(at: linkedCLI, withDestinationURL: script)
+        #expect(try settings.findCLI() == linkedCLI)
+        let environment = ProviderCLI.launchEnvironment(for: linkedCLI, environment: ["PATH": ".:/usr/bin:/bin"])
+        #expect(environment["PATH"]?.split(separator: ":").prefix(3).map(String.init) == [
+            userBin.path, version.appendingPathComponent("bin").path, "/usr/bin",
+        ])
     }
 
     @Test
