@@ -32,8 +32,7 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
     private var controller: NSWindowController?
     private let selection = SettingsSelection()
 
-    func show(capture: CodexCapture, captureTest: CaptureSelfTest,
-              connection: CodexConnection, liveProbe: CodexLiveProbe) {
+    func show(capture: CodexCapture, connection: CodexConnection, liveProbe: CodexLiveProbe) {
         if controller == nil {
             let size = NSSize(width: 580, height: 410)
             let window = NSWindow(
@@ -55,8 +54,7 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
             // Let the AppKit window size the scroll viewport.
             let host = NSHostingView(
                 rootView: SettingsView(
-                    capture: capture, captureTest: captureTest,
-                    connection: connection, liveProbe: liveProbe, selection: selection
+                    capture: capture, connection: connection, liveProbe: liveProbe, selection: selection
                 )
             )
             host.sizingOptions = []
@@ -132,14 +130,12 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
 
 private struct SettingsView: View {
     @ObservedObject var capture: CodexCapture
-    let captureTest: CaptureSelfTest
     @ObservedObject var connection: CodexConnection
     @ObservedObject var liveProbe: CodexLiveProbe
     @ObservedObject var selection: SettingsSelection
     @StateObject private var claudeConnection = ClaudeConnection()
     @StateObject private var grokConnection = GrokConnection()
     @StateObject private var antigravityConnection = AntigravityConnection()
-    @State private var showsCaptureTest = false
 
     var body: some View {
         ScrollView {
@@ -181,11 +177,6 @@ private struct SettingsView: View {
             if capture.statusMessage.hasPrefix("回复队列读取失败") {
                 Text("暂时无法读取新回复。请检查 Agent Todo 的本地存储权限。")
                     .foregroundStyle(.red)
-            }
-            Divider()
-            DisclosureGroup("只测试本机待办识别", isExpanded: $showsCaptureTest) {
-                CaptureTestControls(test: captureTest)
-                    .padding(.top, 7)
             }
         }
         .frame(maxWidth: 500, alignment: .leading)
@@ -330,46 +321,6 @@ private struct SettingsView: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             content()
-        }
-    }
-}
-
-private struct CaptureTestControls: View {
-    @ObservedObject var test: CaptureSelfTest
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("使用模拟回复，无需登录或消耗额度。测试待办不会加入你的列表。")
-                .foregroundStyle(.secondary)
-            feedback
-            switch test.state {
-            case .running:
-                Button("取消自测") { test.cancel() }
-            case .cancelling:
-                ProgressView().controlSize(.small)
-            default:
-                Button("运行本机自测") { test.start() }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var feedback: some View {
-        switch test.state {
-        case .idle:
-            EmptyView()
-        case .running:
-            Text("正在用模拟回复检查待办识别…").foregroundStyle(.secondary)
-        case .cancelling:
-            Text("正在清理测试数据…").foregroundStyle(.secondary)
-        case .passed:
-            Text("本机自测通过，已从模拟回复中识别出 1 条待办。")
-        case .failed(let message):
-            Text("本机自测失败。请重试，或展开查看原因。")
-                .foregroundStyle(.red)
-            ConnectionErrorDetails(message: message)
-        case .cancelled:
-            Text("已取消本机自测。").foregroundStyle(.secondary)
         }
     }
 }

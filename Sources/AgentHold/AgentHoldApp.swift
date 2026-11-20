@@ -15,7 +15,6 @@ struct AgentHoldApp: App {
 @MainActor
 final class AgentHoldDelegate: NSObject, NSApplicationDelegate {
     private let store = HoldStore()
-    private let captureTest = CaptureSelfTest()
     private let connection = CodexConnection()
     private let liveProbe = CodexLiveProbe()
     private let settings = SettingsWindowController()
@@ -104,8 +103,7 @@ final class AgentHoldDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         popover.performClose(nil)
-        settings.show(capture: capture, captureTest: captureTest,
-                      connection: connection, liveProbe: liveProbe)
+        settings.show(capture: capture, connection: connection, liveProbe: liveProbe)
     }
 
     @objc private func quit() {
@@ -114,9 +112,8 @@ final class AgentHoldDelegate: NSObject, NSApplicationDelegate {
         popover.performClose(nil)
         Task {
             async let connectionCleanup: Void = connection.resetAndWait()
-            async let localCleanup: Void = captureTest.cancelAndWait()
             async let liveCleanup: Void = liveProbe.cancelAndWait()
-            _ = await (connectionCleanup, localCleanup, liveCleanup)
+            _ = await (connectionCleanup, liveCleanup)
             NSApp.terminate(nil)
         }
     }
