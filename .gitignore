@@ -1,0 +1,29 @@
+.DS_Store
+
+# SwiftPM and Xcode build output and user state
+/.build/
+/dist/
+/.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+
+# CLI config and locally captured data
+/.codex/
+/.claude/
+/.gemini/
+/.grok/
+holds.json
+Contexts/
+ReplySpool/
