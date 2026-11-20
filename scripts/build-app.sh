@@ -21,10 +21,10 @@ case "$architecture" in
 esac
 mkdir -p "$app_parent"
 app_parent="$(cd "$app_parent" && pwd -P)"
-app_path="$app_parent/Agent 待办.app"
+app_path="$app_parent/Agent Todo.app"
 staging_dir="$(mktemp -d "$app_parent/.agent-hold.XXXXXX")"
 trap 'if [[ -d "$staging_dir" ]]; then find "$staging_dir" -depth -delete; fi' EXIT
-staged_app="$staging_dir/Agent 待办.app"
+staged_app="$staging_dir/Agent Todo.app"
 iconset="$staging_dir/AppIcon.iconset"
 mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources" "$iconset"
 if [[ "$architecture" == universal ]]; then
@@ -64,7 +64,7 @@ cat > "$staged_app/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>Agent 待办</string>
+    <string>Agent Todo</string>
     <key>CFBundleExecutable</key>
     <string>AgentHold</string>
     <key>CFBundleIdentifier</key>
@@ -74,13 +74,13 @@ cat > "$staged_app/Contents/Info.plist" <<'PLIST'
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>AgentHold</string>
+    <string>Agent Todo</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.1</string>
+    <string>0.0.2</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>

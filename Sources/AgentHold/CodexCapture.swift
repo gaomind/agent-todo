@@ -74,7 +74,7 @@ final class CodexCapture: ObservableObject {
     private func deliver(_ reply: CodexReply, conditions: [String]) -> Bool {
         guard !Task.isCancelled else { return false }
         guard reply.provider != .unknown else { return true }
-        if reply.provider == .codex, consumeProbe?(reply, conditions) == true { return true }
+        if consumeProbe?(reply, conditions) == true { return true }
         if UUID(uuidString: reply.sessionID) != nil,
            lastReceivedAt(for: reply.provider).map({ reply.receivedAt > $0 }) ?? true {
             receipts[reply.provider] = reply.receivedAt
@@ -250,7 +250,7 @@ enum CodexHookConfiguration {
         var errorDescription: String? {
             switch self {
             case .hookMissing:
-                "找不到 AgentHoldHook。请使用打包后的 AgentHold。"
+                "找不到 AgentHoldHook。请打开完整的 Agent Todo 应用。"
             case .invalidStructure:
                 "无法识别现有 hooks.json 的结构，已保留原文件。"
             case .concurrentChange:

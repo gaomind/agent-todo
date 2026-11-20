@@ -2,14 +2,13 @@ import AppKit
 import SwiftUI
 
 private enum SettingsPane: String, CaseIterable {
-    case connection, testing, about
+    case connection, about
 
     var identifier: NSToolbarItem.Identifier { .init(rawValue: rawValue) }
 
     var title: String {
         switch self {
-        case .connection: "连接"
-        case .testing: "测试"
+        case .connection: "连接与测试"
         case .about: "关于"
         }
     }
@@ -17,7 +16,6 @@ private enum SettingsPane: String, CaseIterable {
     var symbol: String {
         switch self {
         case .connection: "link"
-        case .testing: "checkmark.circle"
         case .about: "info.circle"
         }
     }
@@ -37,14 +35,14 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
     func show(capture: CodexCapture, captureTest: CaptureSelfTest,
               connection: CodexConnection, liveProbe: CodexLiveProbe) {
         if controller == nil {
-            let size = NSSize(width: 580, height: 350)
+            let size = NSSize(width: 580, height: 410)
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Agent 待办设置"
+            window.title = "Agent Todo 设置"
             window.isReleasedWhenClosed = false
 
             let toolbar = NSToolbar(identifier: "AgentHold.Settings")
@@ -59,10 +57,7 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
                 rootView: SettingsView(
                     capture: capture, captureTest: captureTest,
                     connection: connection, liveProbe: liveProbe, selection: selection
-                ) { [weak self] in
-                    self?.selection.provider = .codex
-                    self?.select(.connection)
-                }
+                )
             )
             host.sizingOptions = []
             host.translatesAutoresizingMaskIntoConstraints = false
@@ -138,20 +133,19 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
 private struct SettingsView: View {
     @ObservedObject var capture: CodexCapture
     let captureTest: CaptureSelfTest
-    let connection: CodexConnection
-    let liveProbe: CodexLiveProbe
+    @ObservedObject var connection: CodexConnection
+    @ObservedObject var liveProbe: CodexLiveProbe
     @ObservedObject var selection: SettingsSelection
-    let showCodexConnection: () -> Void
     @StateObject private var claudeConnection = ClaudeConnection()
     @StateObject private var grokConnection = GrokConnection()
-    @StateObject private var geminiConnection = GeminiConnection()
+    @StateObject private var antigravityConnection = AntigravityConnection()
+    @State private var showsCaptureTest = false
 
     var body: some View {
         ScrollView {
             Group {
                 switch selection.pane {
                 case .connection: connectionPane
-                case .testing: testingPane
                 case .about: aboutPane
                 }
             }
@@ -162,8 +156,9 @@ private struct SettingsView: View {
     }
 
     private var connectionPane: some View {
-        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 14) {
-            settingRow("来源") {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Text("来源").fontWeight(.medium)
                 ViewThatFits(in: .horizontal) {
                     providerPicker
                         .pickerStyle(.segmented)
@@ -172,30 +167,47 @@ private struct SettingsView: View {
                 }
                 .labelsHidden()
             }
-            settingRow("最近收件") {
-                if let lastReceivedAt = capture.lastReceivedAt(for: selection.provider) {
-                    Text(lastReceivedAt, format: .dateTime.year().month().day().hour().minute().second())
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("本次启动后尚未收到此来源的普通对话回复。")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            settingRow(selection.provider == .gemini ? "AfterAgent Hook" : "Stop Hook") {
+            Divider()
+            settingsStep("1. 允许读取回复") {
                 connectionControls
+                    .disabled(liveProbe.activeProvider == selection.provider)
             }
+            Divider()
+            settingsStep("2. 验证连接") {
+                liveTestControls
+            }
+            Divider()
+            ordinaryReceipt
             if capture.statusMessage.hasPrefix("回复队列读取失败") {
-                settingRow("回复队列") {
-                    Text(capture.statusMessage).foregroundStyle(.red)
-                }
+                Text("暂时无法读取新回复。请检查 Agent Todo 的本地存储权限。")
+                    .foregroundStyle(.red)
+            }
+            Divider()
+            DisclosureGroup("只测试本机待办识别", isExpanded: $showsCaptureTest) {
+                CaptureTestControls(test: captureTest)
+                    .padding(.top, 7)
             }
         }
-        .frame(maxWidth: 500)
+        .frame(maxWidth: 500, alignment: .leading)
+    }
+
+    private var ordinaryReceipt: some View {
+        let provider = selection.provider
+        return Group {
+            if let lastReceivedAt = capture.lastReceivedAt(for: provider) {
+                let date = lastReceivedAt.formatted(.dateTime.year().month().day().hour().minute().second())
+                Text("最近一次收到 \(provider.name) 的对话回复：\(date)")
+            } else {
+                Text("本次打开 Agent Todo 后，还没收到 \(provider.name) 的对话回复。")
+            }
+        }
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var providerPicker: some View {
         Picker("来源", selection: $selection.provider) {
-            ForEach([HoldProvider.codex, .claude, .grok, .gemini], id: \.self) { source in
+            ForEach([HoldProvider.codex, .claude, .grok, .antigravity], id: \.self) { source in
                 Text(source.name).tag(source)
             }
         }
@@ -205,30 +217,91 @@ private struct SettingsView: View {
     private var connectionControls: some View {
         switch selection.provider {
         case .codex:
-            CodexConnectionControls(connection: connection, probe: liveProbe)
+            CodexConnectionControls(connection: connection)
         case .claude:
             ClaudeConnectionControls(connection: claudeConnection)
         case .grok:
             GrokConnectionControls(connection: grokConnection)
-        case .gemini:
-            GeminiConnectionControls(connection: geminiConnection)
-        case .unknown:
+        case .antigravity:
+            AntigravityConnectionControls(connection: antigravityConnection)
+        case .gemini, .unknown:
             EmptyView()
         }
     }
 
-    private var testingPane: some View {
-        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 16) {
-            settingRow("本地采集") {
-                CaptureTestControls(test: captureTest)
+    private var cliURL: URL? {
+        switch selection.provider {
+        case .codex: connection.cliURL
+        case .claude: claudeConnection.cliURL
+        case .grok: grokConnection.cliURL
+        case .antigravity: antigravityConnection.cliURL
+        case .gemini, .unknown: nil
+        }
+    }
+
+    private var probeConfiguration: URL? {
+        switch selection.provider {
+        case .codex, .gemini, .unknown: nil
+        case .claude: claudeConnection.probeConfiguration
+        case .grok: grokConnection.probeConfiguration
+        case .antigravity: antigravityConnection.probeConfiguration
+        }
+    }
+
+    private var liveTestControls: some View {
+        let provider = selection.provider
+        let state = liveProbe.state(for: provider)
+        return VStack(alignment: .leading, spacing: 7) {
+            switch state {
+            case .idle:
+                EmptyView()
+            case .running:
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("正在用 \(provider.name) 发消息并等待回复…")
+                }
+            case .passed:
+                Text("\(provider.name) 验证通过。Agent Todo 已收到测试回复。")
+            case .failed(let message):
+                Text("\(provider.name) 验证失败。\(message)")
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            case .cancelled:
+                Text("已取消 \(provider.name) 的连接验证。").foregroundStyle(.secondary)
             }
-            Divider().gridCellUnsizedAxes(.horizontal)
-            settingRow("Codex 真实连接") {
-                CodexLiveTestControls(connection: connection, probe: liveProbe,
-                                      showConnection: showCodexConnection)
+
+            if liveProbe.activeProvider == provider {
+                Button("取消验证") { liveProbe.cancel() }
+            } else {
+                if cliURL == nil {
+                    Text("完成第 1 步后即可发送测试消息。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("使用当前的 \(provider.name) 登录发送一条消息，可能消耗模型额度。")
+                        .foregroundStyle(.secondary)
+                    if provider == .grok {
+                        Text("Grok 可能另外调用模型生成会话标题，额度以 Grok CLI 的记录为准。")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let active = liveProbe.activeProvider {
+                    Text("请等 \(active.name) 的验证结束后再发送。")
+                        .foregroundStyle(.secondary)
+                    Button("查看 \(active.name) 的验证") { selection.provider = active }
+                }
+                Button(sendTitle(for: state, provider: provider)) {
+                    guard let cliURL else { return }
+                    liveProbe.start(provider: provider, cli: cliURL, configuration: probeConfiguration)
+                }
+                .disabled(cliURL == nil || liveProbe.activeProvider != nil)
             }
         }
-        .frame(maxWidth: 500)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func sendTitle(for state: CodexLiveProbe.State, provider: HoldProvider) -> String {
+        if case .failed = state { return "重新向 \(provider.name) 发送测试消息" }
+        return "向 \(provider.name) 发送测试消息"
     }
 
     private var aboutPane: some View {
@@ -238,7 +311,7 @@ private struct SettingsView: View {
                 .interpolation(.high)
                 .frame(width: 80, height: 80)
                 .accessibilityHidden(true)
-            Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Agent 待办")
+            Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Agent Todo")
                 .font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
             if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
@@ -251,14 +324,12 @@ private struct SettingsView: View {
         .padding(.top, 16)
     }
 
-    private func settingRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        GridRow(alignment: .top) {
-            Text(label)
-                .fontWeight(.medium)
-                .fixedSize()
-                .gridColumnAlignment(.trailing)
+    private func settingsStep<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
             content()
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -268,15 +339,16 @@ private struct CaptureTestControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text("使用模拟回复，无需登录或消耗额度。测试待办不会加入你的列表。")
+                .foregroundStyle(.secondary)
             feedback
-                .accessibilityElement(children: .combine)
             switch test.state {
             case .running:
-                Button("取消测试") { test.cancel() }
+                Button("取消自测") { test.cancel() }
             case .cancelling:
                 ProgressView().controlSize(.small)
             default:
-                Button("测试采集") { test.start() }
+                Button("运行本机自测") { test.start() }
             }
         }
     }
@@ -285,20 +357,19 @@ private struct CaptureTestControls: View {
     private var feedback: some View {
         switch test.state {
         case .idle:
-            Text("使用模拟回复测试本地采集").foregroundStyle(.secondary)
+            EmptyView()
         case .running:
-            Text("正在测试 Hook、识别和保存…").foregroundStyle(.secondary)
+            Text("正在用模拟回复检查待办识别…").foregroundStyle(.secondary)
         case .cancelling:
             Text("正在清理测试数据…").foregroundStyle(.secondary)
-        case .passed(let condition):
-            Text("本地测试通过 · \(condition)")
-                .textSelection(.enabled)
+        case .passed:
+            Text("本机自测通过，已从模拟回复中识别出 1 条待办。")
         case .failed(let message):
-            Text("本地测试失败。\(message)")
+            Text("本机自测失败。请重试，或展开查看原因。")
                 .foregroundStyle(.red)
-                .help(message)
+            ConnectionErrorDetails(message: message)
         case .cancelled:
-            Text("已取消本地测试。").foregroundStyle(.secondary)
+            Text("已取消本机自测。").foregroundStyle(.secondary)
         }
     }
 }

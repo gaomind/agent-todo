@@ -1,3 +1,4 @@
+import AgentHoldCaptureSupport
 import Combine
 import Darwin
 import Foundation
@@ -12,7 +13,8 @@ final class CodexLiveProbe: ObservableObject {
         case cancelled
     }
 
-    @Published private(set) var state = State.idle
+    @Published private var states: [HoldProvider: State] = [:]
+    @Published private(set) var activeProvider: HoldProvider?
     private var task: Task<Void, Never>?
     private var active: Attempt?
 
@@ -31,21 +33,33 @@ final class CodexLiveProbe: ObservableObject {
         self.codexHome = codexHome
     }
 
+    var state: State { state(for: .codex) }
+
+    func state(for provider: HoldProvider) -> State {
+        states[provider] ?? .idle
+    }
+
     func start(cli: URL) {
-        guard task == nil else { return }
-        state = .running
+        start(provider: .codex, cli: cli)
+    }
+
+    func start(provider: HoldProvider, cli: URL, configuration: URL? = nil) {
+        guard task == nil, provider != .gemini, provider != .unknown else { return }
+        activeProvider = provider
+        states[provider] = .running
         task = Task {
             defer {
                 active = nil
                 task = nil
+                activeProvider = nil
             }
             do {
-                try await run(cli: cli)
-                state = .passed
+                try await run(provider: provider, cli: cli, configuration: configuration)
+                states[provider] = .passed
             } catch is CancellationError {
-                state = .cancelled
+                states[provider] = .cancelled
             } catch {
-                state = .failed(error.localizedDescription)
+                states[provider] = .failed(error.localizedDescription)
             }
         }
     }
@@ -60,21 +74,29 @@ final class CodexLiveProbe: ObservableObject {
     }
 
     func accept(_ reply: CodexReply, conditions: [String]) -> Bool {
-        guard reply.provider == .codex, let cwd = reply.cwd, cwd.hasPrefix("/") else { return false }
+        guard let cwd = reply.cwd, cwd.hasPrefix("/") else { return false }
         let directory = Self.canonical(URL(fileURLWithPath: cwd, isDirectory: true))
         let name = directory.lastPathComponent
         guard directory.deletingLastPathComponent() == Self.temporaryDirectory,
-              name.hasPrefix(Self.directoryPrefix),
-              let token = UUID(uuidString: String(name.dropFirst(Self.directoryPrefix.count))),
-              reply.message.utf8.count <= HoldDetector.maximumReplyBytes,
-              reply.message.localizedCaseInsensitiveContains(token.uuidString) else { return false }
-        if let active, directory == active.directory {
-            active.accept(reply, conditions: conditions)
+              let token = UUID(uuidString: String(name.suffix(36))) else { return false }
+        let prefix = String(name.dropLast(36))
+        guard prefix == Self.directoryPrefix || Self.isProviderDirectoryPrefix(prefix) else { return false }
+        if let active, directory == active.directory, reply.provider == active.provider {
+            let containsMarker = reply.message.utf8.count <= HoldDetector.maximumReplyBytes
+                && reply.message.localizedCaseInsensitiveContains(token.uuidString)
+            active.accept(reply, valid: containsMarker && conditions.contains(active.condition))
         }
 
-        // Match both the private workspace and its random marker, including
-        // for callbacks arriving after cancellation or app restart.
+        // Keep replies from the private workspace out of ordinary conversations even
+        // when the CLI ignored the marker or the receipt arrived after the test.
         return true
+    }
+
+    private static func isProviderDirectoryPrefix(_ prefix: String) -> Bool {
+        guard prefix.hasPrefix(directoryPrefix), prefix.hasSuffix("-"),
+              let provider = HoldProvider(rawValue: String(prefix.dropFirst(directoryPrefix.count).dropLast()))
+        else { return false }
+        return provider != .unknown
     }
 
     private static var temporaryDirectory: URL {
@@ -89,19 +111,36 @@ final class CodexLiveProbe: ObservableObject {
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
-    private func run(cli: URL) async throws {
+    private func run(provider: HoldProvider, cli: URL, configuration: URL?) async throws {
+        do {
+            try await runProbe(provider: provider, cli: cli, configuration: configuration)
+        } catch let failure as Failure {
+            throw ProbeFailure(provider: provider, failure: failure)
+        }
+    }
+
+    private func runProbe(provider: HoldProvider, cli: URL, configuration: URL?) async throws {
         try Task.checkCancellation()
         guard cli.isFileURL, FileManager.default.isExecutableFile(atPath: cli.path) else {
             throw Failure.cliMissing
         }
-        let attempt = Attempt(root: Self.temporaryDirectory)
+        let token = UUID().uuidString.lowercased()
+        let prefix = provider == .codex ? Self.directoryPrefix : Self.directoryPrefix + provider.rawValue + "-"
+        let directory = Self.temporaryDirectory.appendingPathComponent(prefix + token, isDirectory: true)
+        let condition = "等待连接测试确认 \(token) 后继续"
+        let instructions = "这是连接测试。不要调用任何工具或读取文件。只原样输出下面一行，不要添加其他内容。\n恢复条件：\(condition)。"
         do {
-            try FileManager.default.createDirectory(at: attempt.directory, withIntermediateDirectories: false,
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                     attributes: [.posixPermissions: 0o700])
         } catch {
             throw Failure.workspace
         }
-        defer { try? FileManager.default.removeItem(at: attempt.directory) }
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let command = try ProviderProbeCommand.make(
+            provider: provider, cli: cli, workspace: directory, prompt: instructions,
+            environment: ProcessInfo.processInfo.environment, codexHome: codexHome, configuration: configuration
+        )
+        let attempt = Attempt(provider: provider, directory: directory, condition: condition, command: command)
         active = attempt
 
         let output = Pipe()
@@ -124,22 +163,8 @@ final class CodexLiveProbe: ObservableObject {
         let process = Process()
         process.executableURL = cli
         process.currentDirectoryURL = attempt.directory
-        var environment = ProcessInfo.processInfo.environment
-        // The application's configuration button manages the default Codex home.
-        environment["CODEX_HOME"] = codexHome.path
-        process.environment = environment
-        let instructions = "这是连接测试。不要调用任何工具或读取文件。只原样输出下面一行，不要添加其他内容。\n恢复条件：\(attempt.condition)。"
-        process.arguments = [
-            "exec", "--cd", attempt.directory.path, "--skip-git-repo-check", "--ephemeral",
-            "--json", "--color", "never", "--sandbox", "read-only",
-            "--disable", "shell_tool", "--disable", "unified_exec",
-            "--disable", "apps", "--disable", "plugins", "--disable", "code_mode",
-            "--disable", "image_generation", "--disable", "multi_agent_v2",
-            "--disable", "computer_use", "--disable", "browser_use", "--disable", "browser_use_external",
-            "-c", "approval_policy=never", "-c", "web_search=disabled",
-            "-c", "project_doc_max_bytes=0", "-c", "notify=[]",
-            "--", instructions,
-        ]
+        process.environment = command.environment
+        process.arguments = command.arguments
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = errors
@@ -160,28 +185,34 @@ final class CodexLiveProbe: ObservableObject {
                 try Self.drain(stdout, stderr, attempt: attempt)
                 try await Task.sleep(for: .milliseconds(40))
             }
-            try Self.drain(stdout, stderr, attempt: attempt)
             try Task.checkCancellation()
+            guard clock.now < deadline else { throw Failure.timeout }
+            try Self.drain(stdout, stderr, attempt: attempt)
+            attempt.finishOutput()
+            guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+                throw attempt.authenticationFailure ? Failure.authentication : Failure.cliExit
+            }
+            guard let session = attempt.session, !attempt.conflictingSession else { throw Failure.thread }
+            if provider == .antigravity {
+                guard let result = attempt.antigravityResult, result.session == session else { throw Failure.thread }
+                guard result.response.contains(condition) else { throw Failure.unexpectedReply }
+            }
+
+            let receiptDeadline = min(deadline, clock.now + receiptTimeout)
+            repeat {
+                try Task.checkCancellation()
+                if let valid = attempt.receipts[session] {
+                    guard valid, attempt.matchesAntigravityResult(for: session) else { throw Failure.unexpectedReply }
+                    return
+                }
+                try await Task.sleep(for: .milliseconds(40))
+            } while clock.now < receiptDeadline
+            if !attempt.receipts.isEmpty { throw Failure.wrongThread }
+            throw Failure.noReceipt
         } catch {
             await Self.terminate(process, ownsProcessGroup: ownsProcessGroup)
             throw error
         }
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            throw attempt.authenticationFailure ? Failure.authentication : Failure.cliExit
-        }
-        guard let session = attempt.session, !attempt.conflictingSession else { throw Failure.thread }
-
-        let receiptDeadline = min(deadline, clock.now + receiptTimeout)
-        while clock.now < receiptDeadline {
-            try Task.checkCancellation()
-            if let valid = attempt.receipts[session] {
-                guard valid else { throw Failure.unexpectedReply }
-                return
-            }
-            try await Task.sleep(for: .milliseconds(40))
-        }
-        if !attempt.receipts.isEmpty { throw Failure.wrongThread }
-        throw Failure.noReceipt
     }
 
     private static func terminate(_ process: Process, ownsProcessGroup: Bool) async {
@@ -219,33 +250,54 @@ final class CodexLiveProbe: ObservableObject {
 
     @MainActor
     private final class Attempt {
-        private let token = UUID().uuidString.lowercased()
+        let provider: HoldProvider
         let directory: URL
-        var condition: String { "等待连接测试确认 \(token) 后继续" }
-        var session: UUID?
-        var conflictingSession = false
-        var receipts: [UUID: Bool] = [:]
+        let condition: String
+        private let command: ProviderProbeCommand
+        private(set) var session: UUID?
+        private(set) var conflictingSession = false
+        private(set) var receipts: [UUID: Bool] = [:]
+        private var receiptText: [UUID: String] = [:]
+        private(set) var antigravityResult: (session: UUID, response: String)?
 
+        private var finalOutput: Data?
         private var partialLine = Data()
         private var dropLine = false
         private var errorTail = Data()
-        private var authenticationEvent = false
-        var authenticationFailure: Bool {
-            authenticationEvent || Self.isAuthenticationError(errorTail)
+        private(set) var authenticationFailure = false
+
+        init(provider: HoldProvider, directory: URL, condition: String, command: ProviderProbeCommand) {
+            self.provider = provider
+            self.directory = directory
+            self.condition = condition
+            self.command = command
+            session = command.expectedSession
+            // Grok's one-shot result is a formatted JSON object spanning several lines.
+            finalOutput = provider == .grok ? Data() : nil
         }
 
-        init(root: URL) {
-            directory = root.appendingPathComponent(CodexLiveProbe.directoryPrefix + token, isDirectory: true)
-        }
-
-        func accept(_ reply: CodexReply, conditions: [String]) {
+        func accept(_ reply: CodexReply, valid: Bool) {
             guard let id = UUID(uuidString: reply.sessionID),
                   receipts.count < 8 || receipts[id] != nil || id == session else { return }
-            let valid = conditions.contains(condition)
             receipts[id] = valid || receipts[id] == true
+            if provider == .antigravity, valid {
+                receiptText[id] = reply.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        func matchesAntigravityResult(for id: UUID) -> Bool {
+            guard provider == .antigravity else { return true }
+            return receiptText[id] == antigravityResult?.response
         }
 
         func readOutput(_ bytes: ArraySlice<UInt8>) {
+            if let size = finalOutput?.count {
+                if size + bytes.count <= 128 * 1024 {
+                    finalOutput?.append(contentsOf: bytes)
+                } else {
+                    finalOutput = nil
+                }
+            }
             var start = bytes.startIndex
             while let newline = bytes[start...].firstIndex(of: 10) {
                 appendLine(bytes[start..<newline])
@@ -259,8 +311,13 @@ final class CodexLiveProbe: ObservableObject {
 
         func readError(_ bytes: ArraySlice<UInt8>) {
             errorTail.append(contentsOf: bytes)
-            if Self.isAuthenticationError(errorTail) { authenticationEvent = true }
+            if command.isAuthenticationError(errorTail, isOutput: false) { authenticationFailure = true }
             if errorTail.count > 1024 { errorTail.removeFirst(errorTail.count - 1024) }
+        }
+
+        func finishOutput() {
+            if !dropLine, !partialLine.isEmpty { parseLine() }
+            if let finalOutput { recordSession(command.sessionID(inFinalOutput: finalOutput)) }
         }
 
         private func appendLine(_ bytes: ArraySlice<UInt8>) {
@@ -274,48 +331,46 @@ final class CodexLiveProbe: ObservableObject {
         }
 
         private func parseLine() {
-            guard let event = try? JSONDecoder().decode(Event.self, from: partialLine) else { return }
-            if event.type == "thread.started", let thread = event.threadId {
-                if let session, session != thread { conflictingSession = true }
-                session = thread
-            } else if event.type == "error" || event.type == "turn.failed" {
-                authenticationEvent = authenticationEvent || Self.isAuthenticationError(partialLine)
+            recordSession(command.sessionID(inOutputLine: partialLine))
+            if command.isAuthenticationError(partialLine, isOutput: true) { authenticationFailure = true }
+            if let result = command.completedAntigravityReply(in: partialLine) {
+                if antigravityResult != nil { conflictingSession = true }
+                antigravityResult = result
             }
         }
 
-        private static func isAuthenticationError(_ data: Data) -> Bool {
-            let text = String(decoding: data, as: UTF8.self).lowercased()
-            return ["401 unauthorized", "invalid_api_key", "not logged in", "codex login",
-                    "authentication required", "missing bearer"].contains(where: text.contains)
-        }
-
-        private struct Event: Decodable {
-            let type: String
-            let threadId: UUID?
-
-            enum CodingKeys: String, CodingKey {
-                case type
-                case threadId = "thread_id"
-            }
+        private func recordSession(_ observed: UUID?) {
+            guard let observed else { return }
+            if let session, session != observed { conflictingSession = true }
+            session = observed
         }
     }
 
-    private enum Failure: LocalizedError {
+    private enum Failure: Error {
         case cliMissing, workspace, launch, timeout, authentication, cliExit, thread, output
         case wrongThread, unexpectedReply, noReceipt
+    }
+
+    private struct ProbeFailure: LocalizedError {
+        let provider: HoldProvider
+        let failure: Failure
 
         var errorDescription: String? {
-            switch self {
-            case .cliMissing: "找不到可执行的 Codex CLI。请安装 Codex CLI 后重试。"
-            case .workspace: "无法创建本地测试目录。"
-            case .launch: "无法启动 Codex CLI。"
-            case .timeout: "等待 Codex CLI 完成回复超时。"
-            case .authentication: "Codex CLI 未登录或登录已失效。请运行 codex login 后重试。"
-            case .cliExit: "Codex CLI 提前退出。请检查 CLI 版本、登录及网络连接后重试。"
-            case .thread, .output: "未能读取 Codex CLI 返回的测试会话信息。"
-            case .wrongThread: "收到的 Stop 回执与本次测试会话不匹配。"
-            case .unexpectedReply: "收到了本次 Stop 回执，但回复里缺少预期的测试恢复条件。"
-            case .noReceipt: "Codex 已结束，但未收到本次 Stop 回执。请在「连接与测试」点「重新检查配置」，核对并信任 Agent 待办的 Stop Hook 后重试。"
+            let cli = provider.name
+            switch failure {
+            case .cliMissing: return "找不到 \(cli)。请安装后重试。"
+            case .workspace: return "无法创建测试文件。请检查磁盘空间和权限后重试。"
+            case .launch: return "无法启动 \(cli)。请先确认它能在终端打开。"
+            case .timeout: return "等待回复超时。请检查网络后重试。"
+            case .authentication:
+                if provider == .codex { return "请在终端运行 codex login 登录后重试。" }
+                if provider == .antigravity { return "请在终端运行 agy 完成登录后重试。" }
+                return "请在终端登录 \(cli) 后重试。"
+            case .cliExit: return "请先在终端确认 \(cli) 能正常回复，再重试。"
+            case .thread, .output: return "无法确认本次测试。请更新 \(cli) 后重试。"
+            case .wrongThread: return "收到的回复与本次测试不匹配。请重试。"
+            case .unexpectedReply: return "回复缺少预期内容。请重试。"
+            case .noReceipt: return "未收到测试回复。请在第 1 步重新检查是否允许读取回复。"
             }
         }
     }

@@ -9,7 +9,7 @@ final class HoldStore: ObservableObject {
 
     private static let capacity = 300
     private static let sourcePrefix = "agenthold-source-"
-    private static let omission = "\n\n[Agent 待办：此处省略回复中间内容]\n\n"
+    private static let omission = "\n\n[Agent Todo：此处省略回复中间内容]\n\n"
     private let file: URL
     private var canSave = true
     private var contexts: URL {

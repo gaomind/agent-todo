@@ -9,7 +9,7 @@ enum HookSettingsFile {
         let manager = FileManager.default
         try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
 
-        // Serialize writes from multiple running copies of Agent Hold.
+        // Serialize writes from multiple running copies of Agent Todo.
         let lock = directory.appendingPathComponent(".agent-hold-settings.lock")
         let descriptor = open(lock.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw Failure.writeFailed }
@@ -32,7 +32,7 @@ enum HookSettingsFile {
         try handle.write(contentsOf: data)
         guard fchmod(output, original?.mode ?? 0o600) == 0 else { throw Failure.writeFailed }
 
-        // Also detect edits by programs that do not share Agent Hold's lock.
+        // Also detect edits by programs that do not share Agent Todo's lock.
         guard try read(file) == original else { throw Failure.concurrentChange }
         if original == nil {
             // Publishing by link prevents accidentally overwriting a concurrent first writer.

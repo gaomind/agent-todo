@@ -107,6 +107,8 @@ struct HoldItem: Codable, Identifiable {
             return quotedPath.map { "grok --cwd \($0) --resume \(session)" } ?? "grok --resume \(session)"
         case .gemini:
             return quotedPath.map { "cd \($0) && gemini --resume \(session)" } ?? "gemini --resume \(session)"
+        case .antigravity:
+            return quotedPath.map { "cd \($0) && agy --conversation \(session)" } ?? "agy --conversation \(session)"
         case .unknown:
             return ""
         }
