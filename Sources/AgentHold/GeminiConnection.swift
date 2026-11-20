@@ -293,12 +293,12 @@ struct GeminiHookConfiguration: Equatable {
         var errorDescription: String? {
             switch self {
             case .missingCLI: "找不到 Gemini CLI。可运行 npm install -g @google/gemini-cli 安装。"
-            case .missingHook: "找不到可执行的 AgentHoldHook。请打开完整的 Agent 待办应用。"
+            case .missingHook: "找不到可执行的 AgentHoldHook。请打开完整的 Agent Todo 应用。"
             case .relativeHome: "GEMINI_CLI_HOME 是相对路径。请用绝对路径指定 Gemini CLI 主目录。"
             case .invalidSettings: "Gemini CLI 用户配置中的 hooks 或 hooksConfig 结构无效。"
             case .manualConfiguration: "Gemini CLI 当前设置无法按标准 JSON 读取，可能包含注释或语法错误。"
-            case .disabled: "Gemini CLI 用户配置禁用了 Hook 或 Agent 待办。请检查 hooksConfig。"
-            case .conflictingHook: "Gemini CLI 已有自定义或重复的 Agent 待办 AfterAgent Hook。请检查现有配置。"
+            case .disabled: "Gemini CLI 用户配置禁用了 Hook 或名为 agent-hold 的条目。请检查 hooksConfig。"
+            case .conflictingHook: "Gemini CLI 已有自定义或重复的 Agent Todo AfterAgent Hook。请检查现有配置。"
             }
         }
     }

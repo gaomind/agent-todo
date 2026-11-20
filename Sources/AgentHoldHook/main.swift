@@ -32,7 +32,7 @@ private func retainedText(_ message: String, maximumBytes: Int) -> (String, Stri
     let bytes = message.utf8
     guard bytes.count > maximumBytes else { return (message, nil) }
     // Divide the budget between the beginning and end, avoiding split UTF-8 scalars.
-    // Leave room for the marker inserted when AgentHold presents the two fragments.
+    // Leave room for the marker inserted when Agent Todo presents the two fragments.
     let budget = maximumBytes - 128
     let front = budget * 2 / 3
     var end = bytes.index(bytes.startIndex, offsetBy: front)

@@ -7,7 +7,7 @@ struct ClaudeConnectionControls: View {
         VStack(alignment: .leading, spacing: 7) {
             switch connection.phase {
             case .idle:
-                Text("启用 Stop Hook 后，Agent 待办会在 Claude Code 回复结束时读取回复并识别待办。")
+                Text("启用 Stop Hook 后，Agent Todo 会在 Claude Code 回复结束时读取回复并识别待办。")
                     .foregroundStyle(.secondary)
                 Button("检查 Claude Code 配置") { connection.prepare() }
             case .needsApproval(let review):
@@ -24,7 +24,7 @@ struct ClaudeConnectionControls: View {
                     Button("取消") { connection.reset() }
                 }
             case .ready(let configuration):
-                Text("已配置 Claude Code Stop Hook。请在已信任的工作区开启新会话，确认后续回复可以进入 Agent 待办。")
+                Text("已配置 Claude Code Stop Hook。请在已信任的工作区开启新会话，确认后续回复可以进入 Agent Todo。")
                     .foregroundStyle(.secondary)
                 detail("配置文件", configuration.path)
                 Button("重新检查配置") { connection.prepare() }

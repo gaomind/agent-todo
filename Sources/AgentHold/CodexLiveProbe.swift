@@ -315,7 +315,7 @@ final class CodexLiveProbe: ObservableObject {
             case .thread, .output: "未能读取 Codex CLI 返回的测试会话信息。"
             case .wrongThread: "收到的 Stop 回执与本次测试会话不匹配。"
             case .unexpectedReply: "收到了本次 Stop 回执，但回复里缺少预期的测试恢复条件。"
-            case .noReceipt: "Codex 已结束，但未收到本次 Stop 回执。请在「连接与测试」点「重新检查配置」，核对并信任 Agent 待办的 Stop Hook 后重试。"
+            case .noReceipt: "Codex 已结束，但未收到本次 Stop 回执。请在「连接」中点击「重新检查配置」，核对并信任 Agent Todo 的 Stop Hook 后重试。"
             }
         }
     }

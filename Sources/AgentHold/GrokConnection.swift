@@ -246,14 +246,14 @@ enum GrokConnectionFailure: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .missingCLI: "找不到本机的 Grok Build CLI。请安装 xAI 的 Grok Build CLI 后重试。"
-        case .missingHook: "找不到可执行的 AgentHoldHook。请打开完整的 Agent 待办应用。"
+        case .missingHook: "找不到可执行的 AgentHoldHook。请打开完整的 Agent Todo 应用。"
         case .changed: "Stop Hook 配置在确认期间发生变化。请重新检查。"
         case .launch: "无法启动 Grok Build CLI 的配置检查。"
         case .timeout: "等待 Grok Build CLI 返回配置时超时。"
         case .invalidOutput: "Grok CLI 未返回可识别的 Grok Build 配置。请检查版本和当前配置。"
         case .existingConfiguration(let path):
             "Grok 未发现与当前应用路径匹配的 Stop Hook。请检查 \(path)。若该文件是旧版应用生成的，请将它移出 hooks 目录，再重新启用采集。"
-        case .relativeHome: "当前 GROK_HOME 是相对路径。请设置为绝对路径后重新打开 Agent 待办。"
+        case .relativeHome: "当前 GROK_HOME 是相对路径。请设置为绝对路径后重新打开 Agent Todo。"
         case .write: "无法写入 Grok 的个人 Stop Hook。请检查配置目录权限。"
         case .notDiscovered: "已写入 Stop Hook 配置，但 Grok 未确认加载。请检查 Grok 的有效配置。"
         }

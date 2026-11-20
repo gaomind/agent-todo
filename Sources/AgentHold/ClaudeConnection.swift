@@ -215,10 +215,10 @@ enum ClaudeHookConfiguration {
         var errorDescription: String? {
             switch self {
             case .missingCLI: "找不到本机可执行的 Claude Code CLI。请检查 Claude Code 的安装。"
-            case .missingHook: "找不到 AgentHoldHook。请打开完整的 Agent 待办应用。"
+            case .missingHook: "找不到 AgentHoldHook。请打开完整的 Agent Todo 应用。"
             case .invalidSettings: "Claude Code 的 settings.json 格式无效、超过 1 MiB 或不是常规文件。"
             case .disabled: "Claude Code 用户配置中的 disableAllHooks 已开启。请检查配置后重试。"
-            case .conflictingHook: "Claude Code 配置中已有自定义或重复的 Agent 待办 Stop Hook。请检查相关条目后重试。"
+            case .conflictingHook: "Claude Code 配置中已有自定义或重复的 Agent Todo Stop Hook。请检查相关条目后重试。"
             case .relativeConfigurationDirectory: "CLAUDE_CONFIG_DIR 是相对路径。请用绝对路径指定 Claude Code 配置目录。"
             case .concurrentChange: "Claude Code 配置正在被其他操作修改。请重新检查后重试。"
             case .readFailed: "无法读取 Claude Code 用户配置。请检查文件权限。"

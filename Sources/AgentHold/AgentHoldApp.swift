@@ -45,7 +45,7 @@ final class AgentHoldDelegate: NSObject, NSApplicationDelegate {
                 .map { $0.filter { $0.status == .waiting }.count }
                 .removeDuplicates()
                 .sink { [weak button] count in
-                    button?.setAccessibilityLabel("Agent 待办（\(count) 项等待）")
+                    button?.setAccessibilityLabel("Agent Todo（\(count) 项等待）")
                 }
         }
         popover.behavior = .transient
@@ -70,7 +70,7 @@ final class AgentHoldDelegate: NSObject, NSApplicationDelegate {
         for (title, action, shortcut) in [
             ("打开待办", #selector(openPanel), ""),
             ("设置…", #selector(openSettings), ","),
-            ("退出 Agent 待办", #selector(quit), "q"),
+            ("退出 Agent Todo", #selector(quit), "q"),
         ] {
             if action == #selector(quit) { menu.addItem(.separator()) }
             menu.addItem(withTitle: title, action: action, keyEquivalent: shortcut).target = self
@@ -140,7 +140,7 @@ private struct HoldMenu: View {
 
     private var header: some View {
         HStack {
-            Text("Agent 待办")
+            Text("Agent Todo")
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
             Spacer()

@@ -44,7 +44,7 @@ final class SettingsWindowController: NSObject, NSToolbarDelegate {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Agent 待办设置"
+            window.title = "Agent Todo 设置"
             window.isReleasedWhenClosed = false
 
             let toolbar = NSToolbar(identifier: "AgentHold.Settings")
@@ -238,7 +238,7 @@ private struct SettingsView: View {
                 .interpolation(.high)
                 .frame(width: 80, height: 80)
                 .accessibilityHidden(true)
-            Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Agent 待办")
+            Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Agent Todo")
                 .font(.title2.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
             if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {

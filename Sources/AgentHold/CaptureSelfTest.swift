@@ -161,7 +161,7 @@ final class CaptureSelfTest: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .hookMissing:
-                "找不到 AgentHoldHook。请打开完整的 Agent 待办应用后重试。"
+                "找不到 AgentHoldHook。请打开完整的 Agent Todo 应用后重试。"
             case .hookLaunch, .hookExit:
                 "测试 Hook 无法正常运行。请重新打开应用后重试。"
             case .hookTimeout:

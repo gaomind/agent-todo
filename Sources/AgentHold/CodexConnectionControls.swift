@@ -33,7 +33,7 @@ struct CodexConnectionControls: View {
                     Button("取消") { connection.reset() }
                 }
             case .ready:
-                Text("已确认 Agent 待办 Stop Hook 的信任状态。")
+                Text("已确认 Agent Todo Stop Hook 的信任状态。")
                     .foregroundStyle(.secondary)
                 Text("首次启用前已打开的会话可能仍沿用旧配置。请新建会话，或让承载该会话的 Codex 后台重新加载配置。采集从后续回复开始。")
                     .foregroundStyle(.secondary)

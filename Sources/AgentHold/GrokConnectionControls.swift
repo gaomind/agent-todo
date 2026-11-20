@@ -31,7 +31,7 @@ struct GrokConnectionControls: View {
                     Button("取消") { connection.cancel() }
                 }
             case .ready:
-                Text("Grok 已识别 Agent 待办的 Stop Hook。请重新打开现有 Grok 会话以加载配置。")
+                Text("Grok 已识别 Agent Todo 的 Stop Hook。请重新打开现有 Grok 会话以加载配置。")
                     .foregroundStyle(.secondary)
                 Button("重新检查配置") { connection.check() }
             case .failed(let message):

@@ -147,7 +147,7 @@ final class CodexConnection: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .missingHook: "找不到 AgentHoldHook。请打开完整的 Agent 待办应用。"
+            case .missingHook: "找不到 AgentHoldHook。请打开完整的 Agent Todo 应用。"
             case .missingCLI: "找不到本机可执行的 Codex CLI。请安装或更新 Codex CLI 后重试。"
             case .launch: "无法启动本机 Codex CLI 的 app-server。请检查 Codex 安装后重试。"
             case .timeout(let stage): "本机 Codex CLI 在\(stage.rawValue)时超时。请重试。"
@@ -155,8 +155,8 @@ final class CodexConnection: ObservableObject {
             case .protocolMismatch: "本机 Codex CLI 未提供可识别的 Hook 管理接口。请更新 Codex CLI 后重试。"
             case .wrongHome: "Codex CLI 返回的配置目录与当前应用配置目标不一致。"
             case .missingHookMetadata:
-                "Codex CLI 未发现唯一匹配的 AgentHold Stop Hook。请检查默认 ~/.codex 的 Hook 功能和有效配置。"
-            case .disabled: "Codex CLI 发现 AgentHold Stop Hook，但它已停用。请先在 Codex 中启用该 Hook。"
+                "Codex CLI 未发现唯一匹配的 Agent Todo Stop Hook。请检查默认 ~/.codex 的 Hook 功能和有效配置。"
+            case .disabled: "Codex CLI 发现 Agent Todo Stop Hook，但它已停用。请先在 Codex 中启用该 Hook。"
             case .changed: "Hook 在确认期间发生变化。请重新检查并确认当前命令。"
             case .trustUnverified: "已请求保存信任，Codex CLI 未确认该 Hook 已启用并信任。请重新检查。"
             case .writeRejected: "Codex CLI 拒绝写入该 Hook 的信任设置。请检查配置权限或管理策略。"

@@ -250,7 +250,7 @@ enum CodexHookConfiguration {
         var errorDescription: String? {
             switch self {
             case .hookMissing:
-                "找不到 AgentHoldHook。请使用打包后的 AgentHold。"
+                "找不到 AgentHoldHook。请打开完整的 Agent Todo 应用。"
             case .invalidStructure:
                 "无法识别现有 hooks.json 的结构，已保留原文件。"
             case .concurrentChange:
